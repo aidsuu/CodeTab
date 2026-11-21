@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="linear-gradient-1" x1="324.8" y1="324.8" x2="699.2" y2="699.2" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="0.55" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <title>adaptive-foreground</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <g id="adaptive-foreground">
+      <path id="tab-inactive" d="M569.6 334.88 L656 334.88 C671.906 334.88 684.8 347.774 684.8 363.68 L684.8 392.48 C684.8 408.386 671.906 421.28 656 421.28 L569.6 421.28 C553.694 421.28 540.8 408.386 540.8 392.48 L540.8 363.68 C540.8 347.774 553.694 334.88 569.6 334.88 Z" fill="#3b82f6" opacity="0.4"/>
+      <path id="tab-body" d="M321.92 359.36 C321.92 341.864 336.104 327.68 353.6 327.68 L494.72 327.68 C512.216 327.68 526.4 341.864 526.4 359.36 L526.4 386.72 L650.24 386.72 C678.87 386.72 702.08 409.93 702.08 438.56 L702.08 644.48 C702.08 673.11 678.87 696.32 650.24 696.32 L373.76 696.32 C345.13 696.32 321.92 673.11 321.92 644.48 L321.92 454.402 C321.92 454.402 321.92 454.401 321.92 454.4 L321.92 438.56 Z" fill="url(#linear-gradient-1)"/>
+      <polyline id="prompt-chevron" points="412.64,484.64 481.76,541.52 412.64,598.4" fill="none" stroke="#0e0e0e" stroke-width="44.64" stroke-linecap="round" stroke-linejoin="round"/>
+      <line id="prompt-cursor" x1="523.52" y1="598.4" x2="621.44" y2="598.4" fill="none" stroke="#0e0e0e" stroke-width="44.64" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>

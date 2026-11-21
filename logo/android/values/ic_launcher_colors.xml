@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Already defined in the app's themes.xml as icon_bg; only add this if it's missing. -->
+    <color name="icon_bg">#FF0E0E0E</color>
+</resources>

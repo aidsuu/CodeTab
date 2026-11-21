@@ -1,8 +1,12 @@
-# CodeTab
+<p align="center">
+  <img src="logo/codetab-wordmark.svg" alt="CodeTab" width="440">
+</p>
 
-[![CI](https://github.com/aidsuu/CodeTab/actions/workflows/ci.yml/badge.svg)](https://github.com/aidsuu/CodeTab/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
+<p align="center">
+  <a href="https://github.com/aidsuu/CodeTab/actions/workflows/ci.yml"><img src="https://github.com/aidsuu/CodeTab/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
+  <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&amp;logoColor=white" alt="Android 8.0+">
+</p>
 
 A code editor for Android tablets that runs everything on a remote HPC cluster over SSH.
 
