@@ -10,7 +10,7 @@ import app.jangkau.core.pathParent
 import app.jangkau.remote.Remote
 
 class FakeRemote(override val home: String = "/home/user") : Remote {
-    override val label = "user@login1.hpc via bastion"
+    override val label = "user@dev.example.com via bastion"
     override var isConnected = true
     val files = LinkedHashMap<String, ByteArray>()
     val mtimes = HashMap<String, Long>()

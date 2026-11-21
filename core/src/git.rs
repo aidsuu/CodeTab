@@ -40,7 +40,7 @@ pub enum GitOp {
 }
 
 #[uniffi::export]
-/// Builds a git shell command. Uses pre-2.0 syntax so it works on old HPC login nodes.
+/// Builds a git shell command. Uses pre-2.0 syntax so it works with old git versions on remote servers.
 pub fn git_command(repo: String, op: GitOp) -> String {
     let git = format!("GIT_TERMINAL_PROMPT=0 LC_ALL=C git -C {}", quote(&repo));
     let paths = |ps: &[String]| ps.iter().map(|p| quote(p)).collect::<Vec<_>>().join(" ");

@@ -8,21 +8,21 @@
   <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&amp;logoColor=white" alt="Android 8.0+">
 </p>
 
-A code editor for Android tablets that runs everything on a remote HPC cluster over SSH.
+A code editor for Android tablets that runs everything on a remote server over SSH.
 
-CodeTab gives you a file explorer, an editor, a terminal, and a Git panel. Python, jobs, Git, and every other process run on the cluster. The tablet only draws the interface and sends commands over SSH, so nothing needs to be installed on the server.
+CodeTab gives you a file explorer, an editor, a terminal, and a Git panel. Python, builds, Git, and every other process run on the remote machine. The tablet only draws the interface and sends commands over SSH, so nothing needs to be installed on the server.
 
 ![Workspace](docs/screenshots/01_workspace_explorer.png)
 
 ## Features
 
-- **Pure SSH.** Connects directly or through one jump host (bastion) using `direct-tcpip`. No code-server or daemon on the cluster. Files are read and written over SFTP.
+- **Pure SSH.** Connects directly or through one jump host (bastion) using `direct-tcpip`. No code-server or daemon on the server. Files are read and written over SFTP.
 - **Key authentication.** Generate an Ed25519 key on the tablet or import an OpenSSH, PEM, or PuTTY key. Private keys are encrypted with AES-GCM using a key held in the Android Keystore. Host keys are trusted on first use and changes are flagged.
 - **Explorer.** Lazy-loaded folder tree with file search, Git status markers, and create, rename, delete, and copy-path actions. Dotfiles are hidden by default and can be shown with one tap.
-- **Editor.** Sora Editor with TextMate grammars for Python, Shell and SLURM, JSON, YAML, C, Markdown, and Diff. Before saving, CodeTab checks whether the file changed on the cluster since it was opened.
+- **Editor.** Sora Editor with TextMate grammars for Python, Shell and SLURM, JSON, YAML, C, Markdown, and Diff. Before saving, CodeTab checks whether the file changed on the server since it was opened.
 - **Image and PDF viewer.** PNG, JPEG, GIF, WebP, BMP, and PDF files open in a viewer with pinch zoom.
 - **Terminal.** `xterm-256color` PTY with tabs, 5000 lines of scrollback, truecolor, alternate screen support for vim, less, and top, an extra key row, and bracketed paste.
-- **Run.** Runs `.py` and `.sh` files in the terminal and submits `.slurm` and `.sbatch` files with `sbatch`.
+- **Run.** Runs `.py` and `.sh` files in the terminal. On machines with SLURM, `.slurm` and `.sbatch` files can be submitted with `sbatch`.
 - **Git.** Status with ahead and behind counts, stage, unstage, discard, commit, pull, push, fetch, and per-file diffs. Commands work with Git 1.8 and newer.
 - **Reconnect.** When the connection drops, unsaved tabs are kept and one tap reconnects.
 - **Fonts.** Cascadia Code by default, with JetBrains Mono or the system font as options. Ligatures are off.
@@ -38,8 +38,8 @@ Download the APK from [Releases](https://github.com/aidsuu/CodeTab/releases) and
 ## Getting started
 
 1. On the start screen, create a new Ed25519 key or import an existing one.
-2. Add the public key to `~/.ssh/authorized_keys` on the jump host and on the login node.
-3. Add a host with the login node, user, and key. Enable the jump host option if your cluster needs one. Optionally set a start folder such as `/scratch/user/project` and a Python command such as `module load python/3.11 && python`.
+2. Add the public key to `~/.ssh/authorized_keys` on the server and, if you use one, on the jump host.
+3. Add a server with its host name, user, and key. Enable the jump host option if the server is only reachable through a bastion. Optionally set a start folder such as `~/project` and a Python command such as `conda run -n env python`.
 4. Connect and confirm the host key fingerprint.
 
 ### Keyboard shortcuts
@@ -119,7 +119,7 @@ The end-to-end script starts an unprivileged `sshd` on a random local port with 
 
 - Builds target arm64-v8a only, so the app does not run on x86 emulators.
 - Only public key authentication is supported. Passwords and keyboard-interactive 2FA are not.
-- `git push` and `git pull` use credentials already set up on the cluster because exec sessions have no interactive prompt.
+- `git push` and `git pull` use credentials already set up on the server because exec sessions have no interactive prompt.
 - The editor opens files up to 4 MB. Larger or binary files can be inspected in the terminal.
 
 ## Contributing

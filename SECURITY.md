@@ -1,6 +1,6 @@
 # Security Policy
 
-CodeTab handles SSH private keys and connects to remote clusters, so security reports are taken seriously.
+CodeTab handles SSH private keys and connects to remote servers, so security reports are taken seriously.
 
 ## Supported versions
 

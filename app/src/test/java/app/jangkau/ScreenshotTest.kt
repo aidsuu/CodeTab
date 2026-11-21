@@ -36,9 +36,9 @@ class ScreenshotTest {
     @get:Rule val compose = createComposeRule()
 
     private val profile = HostProfile(
-        name = "HPC Kampus", host = "login1.hpc.kampus.ac.id", user = "user", keyId = "k1",
-        jump = Hop("bastion.kampus.ac.id", 22, "user"), workDir = "~/proyek-iklim",
-        pythonCmd = "module load python/3.11 && python",
+        name = "Server Lab", host = "dev.example.com", user = "user", keyId = "k1",
+        jump = Hop("bastion.example.com", 22, "user"), workDir = "~/proyek-iklim",
+        pythonCmd = "conda run -n iklim python",
     )
 
     private val trainPy = """
@@ -54,7 +54,7 @@ class ScreenshotTest {
         |
         |
         |def train(epochs: int, lr: float = 3e-4, out: Path = Path("runs")) -> float:
-        |    ds = load_era5("/scratch/user/era5/2015-2024.zarr")
+        |    ds = load_era5("data/era5/2015-2024.zarr")
         |    loader = DataLoader(ds, batch_size=64, shuffle=True, num_workers=8)
         |    model = RainNet(channels=32).cuda()
         |    opt = torch.optim.AdamW(model.parameters(), lr=lr)
@@ -77,7 +77,7 @@ class ScreenshotTest {
         |    print(train(p.parse_args().epochs))
         |""".trimMargin()
 
-    private fun fakeHpc() = FakeRemote().apply {
+    private fun fakeServer() = FakeRemote().apply {
         val root = "/home/user/proyek-iklim"
         dir("$root/data"); dir("$root/notebooks"); dir("$root/runs")
         file("$root/.gitignore", "runs/\n")
@@ -92,12 +92,12 @@ class ScreenshotTest {
     }
 
     private fun workspace(scope: kotlinx.coroutines.CoroutineScope, panel: SidePanel): WorkspaceState {
-        val hpc = fakeHpc()
-        val ws = WorkspaceState(hpc, profile, scope)
+        val server = fakeServer()
+        val ws = WorkspaceState(server, profile, scope)
         val root = ws.root
-        ws.preload(root, hpc.list(root))
-        ws.preload("$root/src", hpc.list("$root/src"), open = true)
-        ws.preload("$root/jobs", hpc.list("$root/jobs"), open = true)
+        ws.preload(root, server.list(root))
+        ws.preload("$root/src", server.list("$root/src"), open = true)
+        ws.preload("$root/jobs", server.list("$root/jobs"), open = true)
         ws.git.repo = root
         ws.git.status = parseGitStatus("## main...origin/main [ahead 2]\u0000 M src/train.py\u0000M  jobs/train.slurm\u0000?? jobs/sweep.sh\u0000")
         ws.git.commitMessage = if (panel == SidePanel.Git) "Tambah sweep learning rate" else ""
@@ -114,15 +114,14 @@ class ScreenshotTest {
         val term = Terminal(150u, 14u)
         val esc = "\u001b"
         term.feed((
-            "$esc[1;32muser@login1$esc[0m:$esc[1;34m~/proyek-iklim$esc[0m$ sbatch jobs/train.slurm\r\n" +
-            "Submitted batch job 4815162\r\n" +
-            "$esc[1;32muser@login1$esc[0m:$esc[1;34m~/proyek-iklim$esc[0m$ squeue --me\r\n" +
-            "             JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)\r\n" +
-            "           4815162       gpu    train     user  R       2:41      1 gpu-a100-07\r\n" +
-            "$esc[1;32muser@login1$esc[0m:$esc[1;34m~/proyek-iklim$esc[0m$ cd src && python train.py --epochs 3\r\n" +
+            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/proyek-iklim$esc[0m$ git pull --ff-only\r\n" +
+            "Already up to date.\r\n" +
+            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/proyek-iklim$esc[0m$ nvidia-smi --query-gpu=name,memory.used --format=csv,noheader\r\n" +
+            "NVIDIA A100-SXM4-80GB, 1024 MiB\r\n" +
+            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/proyek-iklim$esc[0m$ cd src && python train.py --epochs 3\r\n" +
             "epoch 000  loss 0.8412\r\nepoch 001  loss 0.5127\r\nepoch 002  loss $esc[33m0.3981$esc[0m\r\n" +
             "$esc[32m0.3981$esc[0m\r\n" +
-            "$esc[1;32muser@login1$esc[0m:$esc[1;34m~/proyek-iklim/src$esc[0m$ "
+            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/proyek-iklim/src$esc[0m$ "
         ).toByteArray())
         ws.attachTerminal(term, "bash 1")
         ws.attachTerminal(Terminal(80u, 10u), "nvidia-smi")
@@ -200,7 +199,7 @@ class ScreenshotTest {
         )
         val profiles = listOf(
             profile,
-            HostProfile(name = "Cluster Lab", host = "hpc-lab.local", port = 2222, user = "user", keyId = "k2", workDir = "/scratch/user", pythonCmd = "python3"),
+            HostProfile(name = "Workstation GPU", host = "gpu-box.local", port = 2222, user = "user", keyId = "k2", workDir = "~/work", pythonCmd = "python3"),
         )
         compose.setContent {
             JangkauTheme {
@@ -216,7 +215,7 @@ class ScreenshotTest {
             JangkauTheme {
                 Box(Modifier.fillMaxSize()) {
                     HostKeyDialog(
-                        HostKeyPrompt("bastion.kampus.ac.id", 22, "ssh-ed25519 SHA256:dqALNePmKw3ZqyOPT3EmVlvRWYP3sL7faNPwgq4KK0U", null, CompletableDeferred()),
+                        HostKeyPrompt("bastion.example.com", 22, "ssh-ed25519 SHA256:dqALNePmKw3ZqyOPT3EmVlvRWYP3sL7faNPwgq4KK0U", null, CompletableDeferred()),
                         onAnswer = {},
                     )
                 }

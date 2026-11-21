@@ -14,20 +14,20 @@ import org.junit.rules.TemporaryFolder
 class ModelTest {
     @get:Rule val tmp = TemporaryFolder()
 
-    private val base = HostProfile(name = "HPC", host = "login.hpc.ac.id", user = "user", keyId = "k1")
+    private val base = HostProfile(name = "Server", host = "server.example.com", user = "user", keyId = "k1")
 
     @Test fun validation() {
         assertNull(base.validate())
         assertEquals("Pilih kunci SSH", base.copy(keyId = null).validate())
-        assertEquals("Host tidak valid", base.copy(host = "login hpc").validate())
+        assertEquals("Host tidak valid", base.copy(host = "server example").validate())
         assertEquals("Port harus 1–65535", base.copy(port = 0).validate())
         assertEquals("Jump host belum lengkap", base.copy(jump = Hop("", 22, "user")).validate())
-        assertNull(base.copy(jump = Hop("bastion.ac.id", 2222, "user")).validate())
+        assertNull(base.copy(jump = Hop("bastion.example.com", 2222, "user")).validate())
     }
 
     @Test fun summaryShowsJump() {
-        assertEquals("user@login.hpc.ac.id", base.summary)
-        assertEquals("user@login.hpc.ac.id:2200  via gw@bastion", base.copy(port = 2200, jump = Hop("bastion", 22, "gw")).summary)
+        assertEquals("user@server.example.com", base.summary)
+        assertEquals("user@server.example.com:2200  via gw@bastion", base.copy(port = 2200, jump = Hop("bastion", 22, "gw")).summary)
     }
 
     @Test fun storeRoundTripWithoutSecrets() {
@@ -36,10 +36,10 @@ class ModelTest {
         assertTrue(store.load().isEmpty())
         val p = base.copy(jump = Hop("bastion", 22, "user", keyId = "k2"), pythonCmd = "module load python/3.11 && python")
         store.upsert(p)
-        store.upsert(p.copy(name = "HPC baru"))
+        store.upsert(p.copy(name = "Server baru"))
         val loaded = store.load()
         assertEquals(1, loaded.size)
-        assertEquals("HPC baru", loaded[0].name)
+        assertEquals("Server baru", loaded[0].name)
         assertEquals(p.jump, loaded[0].jump)
         assertEquals(p.pythonCmd, loaded[0].pythonCmd)
         assertTrue(store.remove(p.id).isEmpty())

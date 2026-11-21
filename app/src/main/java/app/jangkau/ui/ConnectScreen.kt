@@ -89,25 +89,25 @@ fun ConnectScreen(
             }
             Text("CodeTab", style = Ide.hero)
             Spacer(Modifier.height(4.dp))
-            Text("Editor, terminal, dan git yang seluruhnya berjalan di HPC. Tablet hanya layar dan keyboard.",
+            Text("Editor, terminal, dan git yang seluruhnya berjalan di server remote lewat SSH. Tablet hanya layar dan keyboard.",
                 style = Ide.label.copy(color = Ide.textDim, fontSize = 14.sp))
             Spacer(Modifier.height(32.dp))
-            Text("Host HPC", style = Ide.title.copy(fontSize = 24.sp), modifier = Modifier.padding(bottom = 14.dp))
+            Text("Server remote", style = Ide.title.copy(fontSize = 24.sp), modifier = Modifier.padding(bottom = 14.dp))
             if (profiles.isEmpty()) {
-                EmptyCard("Belum ada host. Tambahkan login node HPC Anda (boleh lewat jump host).")
+                EmptyCard("Belum ada server. Tambahkan server remote Anda (boleh lewat jump host).")
             }
             profiles.forEach { p ->
                 ProfileCard(p, keys, onConnect = { onConnect(p) }, onEdit = { editing = p }, onDelete = { deleteProfile = p })
                 Spacer(Modifier.height(10.dp))
             }
             Spacer(Modifier.height(6.dp))
-            FlatButton("+  Tambah host", primary = false) { creating = true }
+            FlatButton("+  Tambah server", primary = false) { creating = true }
             Spacer(Modifier.height(36.dp))
             Text("Langkah pertama", style = Ide.title, modifier = Modifier.padding(bottom = 10.dp))
             listOf(
                 "Buat kunci Ed25519 di panel kanan (atau impor kunci yang sudah ada).",
-                "Salin public key, lalu tambahkan ke ~/.ssh/authorized_keys di jump host dan di login node.",
-                "Tambah host: isi login node, centang \"Lewat jump host\" dan isi bastion bila perlu.",
+                "Salin public key, lalu tambahkan ke ~/.ssh/authorized_keys di server (dan di jump host bila ada).",
+                "Tambah server: isi alamat host, centang \"Lewat jump host\" dan isi bastion bila perlu.",
                 "Sambungkan. Sidik jari host akan ditanya sekali, lalu diingat.",
             ).forEachIndexed { i, s ->
                 Row(Modifier.padding(vertical = 4.dp)) {
@@ -148,7 +148,7 @@ fun ConnectScreen(
     }
     showKey?.let { k -> PublicKeyDialog(k) { showKey = null } }
     deleteProfile?.let { p ->
-        ConfirmDialog("Hapus host ${p.name}?", "Profil dihapus dari tablet. Tidak ada yang berubah di HPC.", "Hapus",
+        ConfirmDialog("Hapus host ${p.name}?", "Profil dihapus dari tablet. Tidak ada yang berubah di server.", "Hapus",
             onConfirm = { onDeleteProfile(p.id) }, onDismiss = { deleteProfile = null })
     }
     deleteKey?.let { k ->
@@ -296,12 +296,12 @@ private fun ProfileDialog(initial: HostProfile?, keys: List<StoredKey>, onDismis
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier.width(620.dp),
-        title = { Text(if (initial == null) "Tambah host HPC" else "Ubah ${initial.name}") },
+        title = { Text(if (initial == null) "Tambah server" else "Ubah ${initial.name}") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Field("Nama", name, { name = it }, Modifier.fillMaxWidth(), placeholder = "mis. HPC Kampus")
+                Field("Nama", name, { name = it }, Modifier.fillMaxWidth(), placeholder = "mis. Server Lab")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Field("Login node", host, { host = it }, Modifier.weight(1f), placeholder = "login.hpc.ac.id")
+                    Field("Host", host, { host = it }, Modifier.weight(1f), placeholder = "server.example.com")
                     Field("Port", port, { port = it.filter(Char::isDigit) }, Modifier.width(96.dp), number = true)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -314,7 +314,7 @@ private fun ProfileDialog(initial: HostProfile?, keys: List<StoredKey>, onDismis
                 }
                 if (useJump) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Field("Jump host", jHost, { jHost = it }, Modifier.weight(1f), placeholder = "bastion.hpc.ac.id")
+                        Field("Jump host", jHost, { jHost = it }, Modifier.weight(1f), placeholder = "bastion.example.com")
                         Field("Port", jPort, { jPort = it.filter(Char::isDigit) }, Modifier.width(96.dp), number = true)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -323,8 +323,8 @@ private fun ProfileDialog(initial: HostProfile?, keys: List<StoredKey>, onDismis
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Field("Folder awal", workDir, { workDir = it }, Modifier.weight(1f), placeholder = "~ atau /scratch/user/proj")
-                    Field("Perintah Python", python, { python = it }, Modifier.weight(1f), placeholder = "module load python && python")
+                    Field("Folder awal", workDir, { workDir = it }, Modifier.weight(1f), placeholder = "~ atau ~/proyek")
+                    Field("Perintah Python", python, { python = it }, Modifier.weight(1f), placeholder = "python3 atau conda run -n env python")
                 }
                 err?.let { Text(it, color = Ide.deleted, style = Ide.small) }
             }
@@ -402,7 +402,7 @@ private fun PublicKeyDialog(k: StoredKey, onDismiss: () -> Unit) {
                 if (line == null) {
                     Text("Public key belum diketahui untuk format ini. Ia akan terbaca setelah kunci dipakai, atau salin dari file .pub Anda.", style = Ide.label)
                 } else {
-                    Text("Tambahkan baris ini ke ~/.ssh/authorized_keys di HPC (dan di jump host). Dari komputer yang sudah bisa login:",
+                    Text("Tambahkan baris ini ke ~/.ssh/authorized_keys di server (dan di jump host). Dari komputer yang sudah bisa login:",
                         style = Ide.label.copy(color = Ide.textDim))
                     Text("echo '<baris di bawah>' >> ~/.ssh/authorized_keys", style = Ide.small.copy(fontFamily = Ide.mono, color = Ide.textDim))
                     Text(line, style = Ide.small.copy(fontFamily = Ide.mono, color = Ide.text),
@@ -453,8 +453,8 @@ fun HostKeyDialog(h: HostKeyPrompt, onAnswer: (Boolean) -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    if (changed) "Sidik jari server berbeda dari yang dipercaya sebelumnya. Ini wajar bila server di-reinstall, tetapi bisa juga tanda penyadapan. Tanyakan admin HPC sebelum melanjutkan."
-                    else "Tablet belum pernah tersambung ke host ini. Cocokkan sidik jari dengan yang diumumkan admin HPC (atau hasil ssh-keyscan dari komputer tepercaya).",
+                    if (changed) "Sidik jari server berbeda dari yang dipercaya sebelumnya. Ini wajar bila server di-reinstall, tetapi bisa juga tanda penyadapan. Tanyakan admin server sebelum melanjutkan."
+                    else "Tablet belum pernah tersambung ke host ini. Cocokkan sidik jari dengan yang diumumkan admin server (atau hasil ssh-keyscan dari komputer tepercaya).",
                     style = Ide.label,
                 )
                 h.previousFingerprint?.let { Text("Sebelumnya: $it", style = Ide.small.copy(fontFamily = Ide.mono, color = Ide.textDim)) }

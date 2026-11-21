@@ -105,12 +105,12 @@ mod tests {
         let k2 = "ssh-ed25519 AAAAkeytwo";
 
         assert_eq!(
-            known_hosts_check(f.clone(), "Login.HPC".into(), 22, k1.into()),
+            known_hosts_check(f.clone(), "Server.Example".into(), 22, k1.into()),
             HostKeyCheck::Unknown
         );
         assert!(known_hosts_trust(
             f.clone(),
-            "login.hpc".into(),
+            "server.example".into(),
             22,
             k1.into(),
             "SHA256:one".into()
@@ -118,38 +118,38 @@ mod tests {
         assert_eq!(
             known_hosts_check(
                 f.clone(),
-                "LOGIN.hpc".into(),
+                "SERVER.example".into(),
                 22,
                 "ssh-ed25519 AAAAkeyone".into()
             ),
             HostKeyCheck::Trusted
         );
         assert_eq!(
-            known_hosts_check(f.clone(), "login.hpc".into(), 2222, k1.into()),
+            known_hosts_check(f.clone(), "server.example".into(), 2222, k1.into()),
             HostKeyCheck::Unknown
         );
         assert_eq!(
-            known_hosts_check(f.clone(), "login.hpc".into(), 22, k2.into()),
+            known_hosts_check(f.clone(), "server.example".into(), 22, k2.into()),
             HostKeyCheck::Changed {
                 previous_fingerprint: "SHA256:one".into()
             }
         );
         assert!(known_hosts_trust(
             f.clone(),
-            "login.hpc".into(),
+            "server.example".into(),
             22,
             k2.into(),
             "SHA256:two".into()
         ));
         assert_eq!(
-            known_hosts_check(f.clone(), "login.hpc".into(), 22, k2.into()),
+            known_hosts_check(f.clone(), "server.example".into(), 22, k2.into()),
             HostKeyCheck::Trusted
         );
         assert_eq!(fs::read_to_string(&f).unwrap().lines().count(), 1);
 
-        assert!(known_hosts_forget(f.clone(), "login.hpc".into(), 22));
+        assert!(known_hosts_forget(f.clone(), "server.example".into(), 22));
         assert_eq!(
-            known_hosts_check(f, "login.hpc".into(), 22, k2.into()),
+            known_hosts_check(f, "server.example".into(), 22, k2.into()),
             HostKeyCheck::Unknown
         );
     }

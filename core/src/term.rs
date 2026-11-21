@@ -357,9 +357,9 @@ mod tests {
     #[test]
     fn modes_title_and_wide_chars() {
         let t = Terminal::new(20, 3);
-        t.feed(b"\x1b]0;user@login1: ~\x07\x1b[?1h\x1b[?2004h\x1b[?25l".to_vec());
+        t.feed(b"\x1b]0;user@dev: ~\x07\x1b[?1h\x1b[?2004h\x1b[?25l".to_vec());
         let s = t.snapshot(0);
-        assert_eq!(s.title, "user@login1: ~");
+        assert_eq!(s.title, "user@dev: ~");
         assert!(s.app_cursor && s.bracketed_paste && !s.cursor_visible);
 
         t.feed("\x1b[2J\x1b[H漢x".as_bytes().to_vec());

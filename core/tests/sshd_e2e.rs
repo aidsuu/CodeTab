@@ -82,11 +82,11 @@ fn jump_sftp_exec_and_terminal() {
     let _ = s.delete(work.clone(), true);
     s.mkdir(work.clone()).unwrap();
     let f = format!("{work}/hello world.py");
-    s.write(f.clone(), b"print('halo dari HPC')\n".to_vec())
+    s.write(f.clone(), b"print('halo dari server')\n".to_vec())
         .unwrap();
     assert_eq!(
         s.read(f.clone(), 1024).unwrap(),
-        b"print('halo dari HPC')\n"
+        b"print('halo dari server')\n"
     );
     assert!(matches!(
         s.read(f.clone(), 4),
@@ -103,7 +103,7 @@ fn jump_sftp_exec_and_terminal() {
     let g = format!("{work}/renamed.py");
     s.rename(f.clone(), g.clone()).unwrap();
     assert!(s.stat(f).unwrap().is_none());
-    assert_eq!(s.stat(g.clone()).unwrap().unwrap().size, 23);
+    assert_eq!(s.stat(g.clone()).unwrap().unwrap().size, 26);
 
     let r = s
         .exec(
@@ -116,7 +116,7 @@ fn jump_sftp_exec_and_terminal() {
         )
         .unwrap();
     assert_eq!(r.exit_code, 3);
-    assert_eq!(r.stdout, "print('halo dari HPC')\n");
+    assert_eq!(r.stdout, "print('halo dari server')\n");
     assert_eq!(r.stderr.trim(), "err");
 
     let updates = Arc::new(Mutex::new(0));

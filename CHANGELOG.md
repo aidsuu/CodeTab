@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-21
+
+### Changed
+
+- The app and documentation now describe any remote SSH server instead of HPC clusters only.
+
 ## [0.2.1] - 2026-11-21
 
 ### Changed
@@ -43,7 +49,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Running Python and shell files and submitting SLURM jobs.
 - Git panel with status, staging, commit, pull, push, fetch, and diffs.
 
-[Unreleased]: https://github.com/aidsuu/CodeTab/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/aidsuu/CodeTab/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/aidsuu/CodeTab/releases/tag/v0.2.2
 [0.2.1]: https://github.com/aidsuu/CodeTab/releases/tag/v0.2.1
 [0.2.0]: https://github.com/aidsuu/CodeTab/releases/tag/v0.2.0
 [0.1.0]: https://github.com/aidsuu/CodeTab/releases/tag/v0.1.0

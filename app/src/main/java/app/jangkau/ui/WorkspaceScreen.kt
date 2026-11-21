@@ -167,7 +167,7 @@ fun WorkspaceScreen(ws: WorkspaceState, onDisconnect: () -> Unit, onReconnect: (
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             title = { Text("Hapus ${e.name}?") },
-            text = { Text(if (e.isDir) "Folder dan seluruh isinya akan dihapus permanen dari HPC (rm -rf)." else "File akan dihapus permanen dari HPC.") },
+            text = { Text(if (e.isDir) "Folder dan seluruh isinya akan dihapus permanen dari server (rm -rf)." else "File akan dihapus permanen dari server.") },
             confirmButton = { TextButton(onClick = { ws.delete(e); confirmDelete = null }) { Text("Hapus", color = Ide.deleted) } },
             dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Batal") } },
         )
@@ -175,8 +175,8 @@ fun WorkspaceScreen(ws: WorkspaceState, onDisconnect: () -> Unit, onReconnect: (
     ws.saveConflict?.let { c ->
         AlertDialog(
             onDismissRequest = { ws.saveConflict = null },
-            title = { Text("File berubah di HPC") },
-            text = { Text("${c.tab.title} diubah di HPC setelah Anda membukanya (mungkin oleh job atau editor lain). Timpa dengan versi di tablet, atau muat ulang dari HPC?") },
+            title = { Text("File berubah di server") },
+            text = { Text("${c.tab.title} diubah di server setelah Anda membukanya (mungkin oleh job atau editor lain). Timpa dengan versi di tablet, atau muat ulang dari server?") },
             confirmButton = { TextButton(onClick = { ws.saveConflict = null; ws.save(c.tab, overwrite = true) }) { Text("Timpa") } },
             dismissButton = {
                 Row {
@@ -339,7 +339,7 @@ private fun ExplorerPanel(ws: WorkspaceState, onAsk: (Ask) -> Unit, onDelete: (R
     ) {
         Row(
             Modifier.weight(1f).clip(Ide.itemShape)
-                .clickable { onAsk(Ask("Buka folder di HPC", ws.root, "Buka") { ws.openFolder(it) }) }
+                .clickable { onAsk(Ask("Buka folder di server", ws.root, "Buka") { ws.openFolder(it) }) }
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -751,7 +751,7 @@ private fun TerminalPanel(ws: WorkspaceState, modifier: Modifier) {
         }
         Box(Modifier.weight(1f).fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 4.dp)) {
             if (term == null) {
-                Text(if (ws.openingTerminal) "Membuka shell di HPC…" else "Belum ada terminal. Ketuk + untuk membuka shell.",
+                Text(if (ws.openingTerminal) "Membuka shell di server…" else "Belum ada terminal. Ketuk + untuk membuka shell.",
                     style = Ide.label.copy(color = Ide.textDim), modifier = Modifier.padding(8.dp))
             } else {
                 val font = ws.prefs.font
