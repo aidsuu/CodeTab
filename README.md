@@ -4,57 +4,79 @@
 
 <p align="center">
   <a href="https://github.com/aidsuu/CodeTab/actions/workflows/ci.yml"><img src="https://github.com/aidsuu/CodeTab/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/aidsuu/CodeTab/releases/latest"><img src="https://img.shields.io/github/v/release/aidsuu/CodeTab" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&amp;logoColor=white" alt="Android 8.0+">
 </p>
 
-A code editor for Android tablets that runs everything on a remote server over SSH.
+<p align="center">
+  A code editor for Android tablets that works entirely on a remote server over SSH.
+</p>
 
-CodeTab gives you a file explorer, an editor, a terminal, and a Git panel. Python, builds, Git, and every other process run on the remote machine. The tablet only draws the interface and sends commands over SSH, so nothing needs to be installed on the server.
+CodeTab turns a tablet into a window onto your remote machine. It gives you a file explorer, a code editor, a terminal, and a Git panel, while your code, builds, Python environments, and Git repositories stay on the server. The tablet only renders the interface and sends commands over SSH, so the server needs nothing beyond a standard SSH daemon with SFTP enabled.
 
-![Workspace](docs/screenshots/01_workspace_explorer.png)
+![CodeTab workspace with the explorer, editor, and terminal](docs/screenshots/01_workspace_explorer.png)
 
 ## Features
 
-- **Pure SSH.** Connects directly or through one jump host (bastion) using `direct-tcpip`. No code-server or daemon on the server. Files are read and written over SFTP.
-- **Key authentication.** Generate an Ed25519 key on the tablet or import an OpenSSH, PEM, or PuTTY key. Private keys are encrypted with AES-GCM using a key held in the Android Keystore. Host keys are trusted on first use and changes are flagged.
-- **Explorer.** Lazy-loaded folder tree with file search, Git status markers, and create, rename, delete, and copy-path actions. Dotfiles are hidden by default and can be shown with one tap.
-- **Editor.** Sora Editor with TextMate grammars for Python, Shell and SLURM, JSON, YAML, C, Markdown, and Diff. Before saving, CodeTab checks whether the file changed on the server since it was opened.
-- **Image and PDF viewer.** PNG, JPEG, GIF, WebP, BMP, and PDF files open in a viewer with pinch zoom.
-- **Terminal.** `xterm-256color` PTY with tabs, 5000 lines of scrollback, truecolor, alternate screen support for vim, less, and top, an extra key row, and bracketed paste.
-- **Run.** Runs `.py` and `.sh` files in the terminal. On machines with SLURM, `.slurm` and `.sbatch` files can be submitted with `sbatch`.
-- **Git.** Status with ahead and behind counts, stage, unstage, discard, commit, pull, push, fetch, and per-file diffs. Commands work with Git 1.8 and newer.
-- **Reconnect.** When the connection drops, unsaved tabs are kept and one tap reconnects.
-- **Fonts.** Cascadia Code by default, with JetBrains Mono or the system font as options. Ligatures are off.
+- **SSH only.** Connect directly or through a single jump host. There is no code-server, agent, or daemon to install, and files are read and written over SFTP.
+- **Key-based authentication.** Generate an Ed25519 key on the tablet or import an existing OpenSSH, PEM, or PuTTY key. Private keys are encrypted with a key held in the Android Keystore, and host keys are trusted on first use with a warning if they ever change.
+- **Explorer.** Browse a folder tree that loads on demand, search files, and see Git status at a glance. Create, rename, delete, and copy paths from a long press. Dotfiles are hidden by default and can be shown with one tap.
+- **Editor.** Syntax highlighting for the [languages listed below](#supported-languages), line numbers, undo and redo, and adjustable font size. Before saving, CodeTab checks whether the file was changed on the server since you opened it, so a running job's output is never silently overwritten.
+- **Image and PDF viewer.** Open plots, figures, and papers straight from the server with pinch to zoom.
+- **Terminal.** A full `xterm-256color` shell with multiple tabs, 5,000 lines of scrollback, truecolor, support for full-screen programs such as vim, less, and top, an extra key row for Esc, Tab, Ctrl, Alt, and arrows, and safe multi-line paste.
+- **Run.** Run the current Python or shell script in the terminal with one tap. On machines with SLURM, job scripts can be submitted with `sbatch`.
+- **Git.** See the branch with ahead and behind counts, stage and unstage changes, discard edits, commit, pull, push, fetch, and view per-file diffs. Commands are compatible with Git 1.8 and newer.
+- **Reconnect.** If the connection drops, open tabs and unsaved edits are kept, and a single tap reconnects.
+- **Fonts.** Cascadia Code by default, with JetBrains Mono or the system font as alternatives. Ligatures are disabled, so code looks the way you typed it.
 
 | Connect | Source control | Image viewer |
 |---|---|---|
-| ![Connect](docs/screenshots/03_connect.png) | ![Git](docs/screenshots/02_workspace_git.png) | ![Viewer](docs/screenshots/05_image_viewer.png) |
+| ![Connect screen](docs/screenshots/03_connect.png) | ![Source control panel](docs/screenshots/02_workspace_git.png) | ![Image viewer](docs/screenshots/05_image_viewer.png) |
 
-## Install
+## Supported languages
 
-Download the APK from [Releases](https://github.com/aidsuu/CodeTab/releases) and install it on an arm64 tablet running Android 8.0 or newer.
+The editor highlights syntax using TextMate grammars from Visual Studio Code.
+
+| Language | File types |
+|---|---|
+| Python | `.py`, `.pyw`, `.pyi` |
+| Shell | `.sh`, `.bash`, `.zsh`, `.bashrc`, `.bash_profile`, `.profile`, `.zshrc` |
+| Job scripts | `.slurm`, `.sbatch`, `.pbs`, `.job` (highlighted as Shell) |
+| JSON | `.json`, `.ipynb` |
+| YAML | `.yml`, `.yaml` |
+| C | `.c`, `.h` |
+| Markdown | `.md`, `.markdown`, including fenced code blocks in the languages above |
+| Diff | `.diff`, `.patch` |
+
+Any other text file opens as plain text and can still be edited. Autocomplete currently suggests words from the open file. Language-aware features such as go to definition and library completions are not available yet.
+
+## Installation
+
+Download the latest APK from [Releases](https://github.com/aidsuu/CodeTab/releases/latest) and install it on an arm64 Android tablet running Android 8.0 or newer. You may need to allow installs from unknown sources.
 
 ## Getting started
 
-1. On the start screen, create a new Ed25519 key or import an existing one.
-2. Add the public key to `~/.ssh/authorized_keys` on the server and, if you use one, on the jump host.
-3. Add a server with its host name, user, and key. Enable the jump host option if the server is only reachable through a bastion. Optionally set a start folder such as `~/project` and a Python command such as `conda run -n env python`.
-4. Connect and confirm the host key fingerprint.
+1. On the start screen, create a new Ed25519 key or import one you already use.
+2. Copy the public key and add it to `~/.ssh/authorized_keys` on the server, and on the jump host if you use one.
+3. Add a server with its host name, user, and key. If the server is only reachable through a bastion, enable the jump host option and fill in its details. You can also set a start folder such as `~/project` and the command used to run Python, for example `conda run -n env python`.
+4. Tap **Connect** and confirm the host key fingerprint. CodeTab remembers it for future connections.
 
 ### Keyboard shortcuts
 
+With a hardware keyboard attached, the following shortcuts are available.
+
 | Shortcut | Action |
 |---|---|
-| `Ctrl+S` | Save |
+| `Ctrl+S` | Save the current file |
 | `Ctrl+Enter` | Run the current file |
-| `Ctrl+J` or `` Ctrl+` `` | Toggle the terminal |
-| `Ctrl+B` | Toggle the sidebar |
-| `Ctrl+W` | Close tab |
-| `Ctrl+Shift+G` | Source control |
-| `Ctrl+=` / `Ctrl+-` | Font size |
+| `Ctrl+J` or `` Ctrl+` `` | Show or hide the terminal |
+| `Ctrl+B` | Show or hide the sidebar |
+| `Ctrl+W` | Close the current tab |
+| `Ctrl+Shift+G` | Open source control |
+| `Ctrl+=` / `Ctrl+-` | Increase or decrease the font size |
 
-When the terminal has focus, other `Ctrl` combinations go to the shell.
+While the terminal has focus, all other `Ctrl` combinations are sent to the shell, so `Ctrl+C` and `Ctrl+D` work as expected.
 
 ## Architecture
 
@@ -69,11 +91,11 @@ Kotlin / Jetpack Compose (app/)          Rust (core/, libjangkau_core.so)
           └──────────────────────────────┴─ paths.rs        POSIX paths and shell quoting
 ```
 
-All non-UI logic lives in the Rust core. The Kotlin app draws the UI and stores secrets in the Android Keystore.
+Everything that does not touch the screen lives in the Rust core, including SSH, SFTP, terminal emulation, and Git command handling. The Kotlin app draws the interface and stores secrets in the Android Keystore. The two layers talk through bindings generated by UniFFI.
 
 ## Building from source
 
-Requirements are JDK 17 or newer, the Android SDK with NDK `27.2.12479018`, and a Rust toolchain with the `aarch64-linux-android` target.
+You need JDK 17 or newer, the Android SDK with NDK `27.2.12479018`, and a Rust toolchain with the `aarch64-linux-android` target.
 
 ```bash
 rustup target add aarch64-linux-android
@@ -81,35 +103,41 @@ export ANDROID_HOME=/path/to/android-sdk
 export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018
 ```
 
-Build the Rust core and generate the Kotlin bindings.
+Build the Rust core for Android and for the host, and generate the Kotlin bindings.
 
 ```bash
 scripts/build-core.sh
 ```
 
-Build the APK.
+Then build the APK.
 
 ```bash
 ./gradlew assembleRelease
 ```
 
-The APK is written to `app/build/outputs/apk/release/`. Release builds are signed with the debug key so they install directly. Use your own signing key for public distribution.
+The APK is written to `app/build/outputs/apk/release/`. Release builds are signed with the debug key so they can be installed directly. Sign with your own key before distributing a build.
 
-### Tests
+### Running the tests
+
+Run the Rust unit tests.
 
 ```bash
 cargo test --lib --manifest-path core/Cargo.toml
 ```
 
+Run the end-to-end tests against a real SSH server.
+
 ```bash
 scripts/e2e-sshd.sh
 ```
+
+Run the Android unit and screenshot tests.
 
 ```bash
 ./gradlew testDebugUnitTest
 ```
 
-The end-to-end script starts an unprivileged `sshd` on a random local port with temporary keys and tests the jump host, SFTP, exec, PTY resize, host key checks, and error paths. It does not touch `~/.ssh`. The JVM tests load the host build of the Rust core through JNA and include Roborazzi screenshot tests on a 1280×800 dp landscape tablet. To update the screenshots, run the screenshot tests with recording enabled.
+The end-to-end script starts an unprivileged `sshd` on a random local port with temporary keys. It covers the jump host, SFTP, remote commands, terminal resizing, host key checks, and error handling, and it never touches your `~/.ssh`. The Android tests load the host build of the Rust core through JNA and include Roborazzi screenshot tests on a 1280×800 dp landscape tablet. To update the screenshots, record them again.
 
 ```bash
 ./gradlew testDebugUnitTest --tests '*ScreenshotTest*' -Proborazzi.test.record=true
@@ -117,17 +145,17 @@ The end-to-end script starts an unprivileged `sshd` on a random local port with 
 
 ## Limitations
 
-- Builds target arm64-v8a only, so the app does not run on x86 emulators.
-- Only public key authentication is supported. Passwords and keyboard-interactive 2FA are not.
-- `git push` and `git pull` use credentials already set up on the server because exec sessions have no interactive prompt.
-- The editor opens files up to 4 MB. Larger or binary files can be inspected in the terminal.
+- Only arm64 builds are provided, so the app does not run on x86 emulators.
+- Only public key authentication is supported. Passwords and keyboard-interactive two-factor authentication are not.
+- `git push` and `git pull` rely on credentials already configured on the server, because remote commands run without an interactive prompt.
+- The editor opens files up to 4 MB. Larger files and binary files can be inspected in the terminal.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues as described in [SECURITY.md](SECURITY.md).
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, and report security issues privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
 CodeTab is licensed under the [Apache License 2.0](LICENSE).
 
-The bundled fonts Cascadia Code, JetBrains Mono, and Inter are licensed under the SIL Open Font License 1.1. Their license texts are in [`app/src/main/assets/licenses/`](app/src/main/assets/licenses/). The TextMate grammars in `app/src/main/assets/textmate/` come from Visual Studio Code and are licensed under the MIT License.
+The bundled fonts Cascadia Code, JetBrains Mono, and Inter are licensed under the SIL Open Font License 1.1, and their license texts are in [`app/src/main/assets/licenses/`](app/src/main/assets/licenses/). The TextMate grammars in `app/src/main/assets/textmate/` come from Visual Studio Code and are licensed under the MIT License.
