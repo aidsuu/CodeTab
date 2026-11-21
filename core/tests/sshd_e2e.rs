@@ -125,7 +125,9 @@ fn jump_sftp_exec_and_terminal() {
         .unwrap();
     t.send(b"echo JANGKAU_$((40+2)); tput cols\r".to_vec());
     let start = Instant::now();
-    while !t.screen_text().contains("JANGKAU_42") && start.elapsed() < Duration::from_secs(10) {
+    while !(t.screen_text().contains("JANGKAU_42") && t.screen_text().contains("\n80"))
+        && start.elapsed() < Duration::from_secs(10)
+    {
         std::thread::sleep(Duration::from_millis(100));
     }
     let text = t.screen_text();
