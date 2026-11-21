@@ -21,7 +21,7 @@ pub struct KeyInfo {
 #[uniffi::export]
 pub fn generate_ed25519(comment: String) -> Result<GeneratedKey, CoreError> {
     let mut seed = [0u8; 32];
-    getrandom::fill(&mut seed).map_err(|e| CoreError::Key(format!("RNG gagal: {e}")))?;
+    getrandom::fill(&mut seed).map_err(|e| CoreError::Key(format!("RNG failed: {e}")))?;
     let kp = Ed25519Keypair::from_seed(&seed);
     seed.fill(0);
     let key = PrivateKey::new(KeypairData::from(kp), comment).map_err(key_err)?;
@@ -103,11 +103,11 @@ pub(crate) fn decode(text: &str, passphrase: Option<&str>) -> Result<PrivateKey,
         if passphrase.is_none()
             && inspect_private_key(text.to_string()).is_some_and(|i| i.encrypted)
         {
-            CoreError::Key("Kunci ini memakai passphrase".into())
+            CoreError::Key("This key is protected by a passphrase".into())
         } else if passphrase.is_some() {
-            CoreError::Key(format!("Passphrase salah atau kunci rusak ({e})"))
+            CoreError::Key(format!("Wrong passphrase or damaged key ({e})"))
         } else {
-            CoreError::Key(format!("Kunci tidak bisa dibaca: {e}"))
+            CoreError::Key(format!("Could not read the key: {e}"))
         }
     })
 }
@@ -152,7 +152,7 @@ mod tests {
         let g = generate_ed25519("enc".into()).unwrap();
         let key = PrivateKey::from_openssh(&g.private_pem).unwrap();
         let mut rng = TestRng(7);
-        let enc = key.encrypt(&mut rng, "rahasia").unwrap();
+        let enc = key.encrypt(&mut rng, "secret").unwrap();
         let pem = enc.to_openssh(LineEnding::LF).unwrap().to_string();
 
         let info = inspect_private_key(pem.clone()).unwrap();
@@ -164,7 +164,7 @@ mod tests {
         );
         assert!(unlock_private_key(pem.clone(), Some("salah".into())).is_err());
         assert_eq!(
-            unlock_private_key(pem, Some("rahasia".into()))
+            unlock_private_key(pem, Some("secret".into()))
                 .unwrap()
                 .fingerprint,
             Some(g.fingerprint)

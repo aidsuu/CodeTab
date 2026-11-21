@@ -69,7 +69,7 @@ class WorkspaceStateTest {
     @Test fun commitRequiresMessageAndQuotesIt() = scope.runTest {
         ws.refreshGit(); advanceUntilIdle()
         ws.gitCommit(); advanceUntilIdle()
-        assertEquals("Tulis pesan commit dulu", ws.message)
+        assertEquals("Write a commit message first", ws.message)
         ws.git.commitMessage = "fix: it's done"
         ws.gitCommit(); advanceUntilIdle()
         assertTrue(remote.commands.any { it.endsWith("commit -m 'fix: it'\\''s done'") })
@@ -81,43 +81,43 @@ class WorkspaceStateTest {
         val tab = ws.activeTab!!
         assertEquals("print('hi')\n", tab.initialText)
 
-        var buffer = "print('halo')\n"
+        var buffer = "print('hello')\n"
         tab.currentText = { buffer }
         tab.dirty = true
         ws.save(); advanceUntilIdle()
-        assertEquals("print('halo')\n", remote.text("/home/user/proj/train.py"))
+        assertEquals("print('hello')\n", remote.text("/home/user/proj/train.py"))
         assertFalse(tab.dirty)
 
-        remote.write("/home/user/proj/train.py", "dari job\n".toByteArray())
-        buffer = "versi tablet\n"
+        remote.write("/home/user/proj/train.py", "from job\n".toByteArray())
+        buffer = "tablet version\n"
         tab.dirty = true
         ws.save(); advanceUntilIdle()
         assertNotNull(ws.saveConflict)
-        assertEquals("dari job\n", remote.text("/home/user/proj/train.py"))
+        assertEquals("from job\n", remote.text("/home/user/proj/train.py"))
         ws.saveConflict = null
         ws.save(tab, overwrite = true); advanceUntilIdle()
-        assertEquals("versi tablet\n", remote.text("/home/user/proj/train.py"))
+        assertEquals("tablet version\n", remote.text("/home/user/proj/train.py"))
     }
 
     @Test fun binaryAndMissingFilesShowErrors() = scope.runTest {
         remote.files["/home/user/proj/model.pt"] = byteArrayOf(1, 0, 2, 3)
         ws.open("/home/user/proj/model.pt"); advanceUntilIdle()
         assertNull(ws.activeTab)
-        assertTrue(ws.message!!.contains("biner"))
+        assertTrue(ws.message!!.contains("Binary"))
     }
 
     @Test fun createRenameDelete() = scope.runTest {
         ws.start(); advanceUntilIdle()
-        ws.createFile(ws.root, "baru.py"); advanceUntilIdle()
-        assertNotNull(remote.stat("/home/user/proj/baru.py"))
-        assertEquals("baru.py", ws.activeTab?.title)
-        ws.createFile(ws.root, "baru.py"); advanceUntilIdle()
-        assertTrue(ws.message!!.contains("sudah ada"))
+        ws.createFile(ws.root, "new.py"); advanceUntilIdle()
+        assertNotNull(remote.stat("/home/user/proj/new.py"))
+        assertEquals("new.py", ws.activeTab?.title)
+        ws.createFile(ws.root, "new.py"); advanceUntilIdle()
+        assertTrue(ws.message!!.contains("already exists"))
 
-        val e = ws.rows().first { it.entry.name == "baru.py" }.entry
-        ws.rename(e, "lama.py"); advanceUntilIdle()
-        assertNull(remote.stat("/home/user/proj/baru.py"))
-        assertNull(ws.tabs.firstOrNull { it.path.endsWith("baru.py") })
+        val e = ws.rows().first { it.entry.name == "new.py" }.entry
+        ws.rename(e, "old.py"); advanceUntilIdle()
+        assertNull(remote.stat("/home/user/proj/new.py"))
+        assertNull(ws.tabs.firstOrNull { it.path.endsWith("new.py") })
 
         val data = ws.rows().first { it.entry.name == "data" }.entry
         ws.delete(data); advanceUntilIdle()
@@ -126,7 +126,7 @@ class WorkspaceStateTest {
 
     @Test fun lostConnectionIsFlagged() = scope.runTest {
         remote.isConnected = false
-        remote.execHandler = { throw app.jangkau.core.CoreException.Closed("Koneksi sudah tertutup") }
+        remote.execHandler = { throw app.jangkau.core.CoreException.Closed("Connection closed") }
         ws.gitPull(); advanceUntilIdle()
         assertTrue(ws.connectionLost)
         ws.replaceRemote(FakeRemote().also { it.execHandler = remote.execHandler })

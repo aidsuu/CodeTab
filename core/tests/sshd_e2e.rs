@@ -48,7 +48,7 @@ fn hop(host: &str, port: u16, user: &str, key: &str) -> Hop {
 #[test]
 fn jump_sftp_exec_and_terminal() {
     let Some((port, user, key, dir)) = env() else {
-        eprintln!("JANGKAU_E2E_* tidak diset, tes dilewati");
+        eprintln!("JANGKAU_E2E_* not set, skipping");
         return;
     };
     let kh = format!("{dir}/app_known_hosts");
@@ -72,7 +72,7 @@ fn jump_sftp_exec_and_terminal() {
     assert_eq!(
         prompts.load(Ordering::SeqCst),
         2,
-        "dua host baru harus dikonfirmasi"
+        "both new hosts must be confirmed"
     );
     assert!(s.is_connected());
     assert!(s.label().contains("via localhost"));
@@ -82,11 +82,11 @@ fn jump_sftp_exec_and_terminal() {
     let _ = s.delete(work.clone(), true);
     s.mkdir(work.clone()).unwrap();
     let f = format!("{work}/hello world.py");
-    s.write(f.clone(), b"print('halo dari server')\n".to_vec())
+    s.write(f.clone(), b"print('hello from server')\n".to_vec())
         .unwrap();
     assert_eq!(
         s.read(f.clone(), 1024).unwrap(),
-        b"print('halo dari server')\n"
+        b"print('hello from server')\n"
     );
     assert!(matches!(
         s.read(f.clone(), 4),
@@ -103,7 +103,7 @@ fn jump_sftp_exec_and_terminal() {
     let g = format!("{work}/renamed.py");
     s.rename(f.clone(), g.clone()).unwrap();
     assert!(s.stat(f).unwrap().is_none());
-    assert_eq!(s.stat(g.clone()).unwrap().unwrap().size, 26);
+    assert_eq!(s.stat(g.clone()).unwrap().unwrap().size, 27);
 
     let r = s
         .exec(
@@ -116,7 +116,7 @@ fn jump_sftp_exec_and_terminal() {
         )
         .unwrap();
     assert_eq!(r.exit_code, 3);
-    assert_eq!(r.stdout, "print('halo dari server')\n");
+    assert_eq!(r.stdout, "print('hello from server')\n");
     assert_eq!(r.stderr.trim(), "err");
 
     let updates = Arc::new(Mutex::new(0));
@@ -131,8 +131,8 @@ fn jump_sftp_exec_and_terminal() {
         std::thread::sleep(Duration::from_millis(100));
     }
     let text = t.screen_text();
-    assert!(text.contains("JANGKAU_42"), "layar: {text}");
-    assert!(text.contains("\n80"), "PTY harus 80 kolom: {text}");
+    assert!(text.contains("JANGKAU_42"), "screen: {text}");
+    assert!(text.contains("\n80"), "PTY must be 80 columns: {text}");
     t.resize(100, 30);
     t.send(b"tput cols\r".to_vec());
     let start = Instant::now();
@@ -172,7 +172,7 @@ fn jump_sftp_exec_and_terminal() {
         "localhost".into(),
         port,
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeFakeFakeFakeFakeFakeFakeFakeFakeFakeFake".into(),
-        "SHA256:lama".into(),
+        "SHA256:old".into(),
     );
     let p3 = Arc::new(AtomicUsize::new(0));
     let err = Session::connect(
@@ -233,5 +233,5 @@ fn closed_port_gives_clear_error() {
     )
     .err()
     .unwrap();
-    assert!(err.to_string().contains("ditolak"), "{err}");
+    assert!(err.to_string().contains("refused"), "{err}");
 }

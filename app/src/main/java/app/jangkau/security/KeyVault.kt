@@ -79,13 +79,13 @@ class KeyVault(private val dir: File, private val box: SecretBox, private val cl
     fun find(id: String?): StoredKey? = id?.let { k -> list().firstOrNull { it.id == k } }
 
     fun generateEd25519(name: String): StoredKey {
-        val g = app.jangkau.core.generateEd25519(name.trim().replace(' ', '-') + "@jangkau")
+        val g = app.jangkau.core.generateEd25519(name.trim().replace(' ', '-') + "@codetab")
         return store(name, g.privatePem, StoredKey(newId(), name, "ed25519", g.publicLine, g.fingerprint, false, clock()))
     }
 
     fun import(name: String, text: String): StoredKey {
         val info = inspectPrivateKey(text)
-            ?: throw KeyImportException("Format kunci tidak dikenali. Tempel isi file private key (mis. id_ed25519), bukan file .pub.")
+            ?: throw KeyImportException("Unrecognized key format. Paste the private key file (for example id_ed25519), not the .pub file.")
         val meta = StoredKey(
             id = newId(),
             name = name,
@@ -109,7 +109,7 @@ class KeyVault(private val dir: File, private val box: SecretBox, private val cl
 
     @Synchronized
     private fun store(name: String, secret: String, meta: StoredKey): StoredKey {
-        require(name.isNotBlank()) { "Nama kunci kosong" }
+        require(name.isNotBlank()) { "Key name is empty" }
         dir.mkdirs()
         File(dir, "${meta.id}.key").writeBytes(box.seal(secret.toByteArray(Charsets.UTF_8)))
         writeIndex(list() + meta)

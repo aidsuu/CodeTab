@@ -166,22 +166,22 @@ fun WorkspaceScreen(ws: WorkspaceState, onDisconnect: () -> Unit, onReconnect: (
     confirmDelete?.let { e ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("Hapus ${e.name}?") },
-            text = { Text(if (e.isDir) "Folder dan seluruh isinya akan dihapus permanen dari server (rm -rf)." else "File akan dihapus permanen dari server.") },
-            confirmButton = { TextButton(onClick = { ws.delete(e); confirmDelete = null }) { Text("Hapus", color = Ide.deleted) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Batal") } },
+            title = { Text("Delete ${e.name}?") },
+            text = { Text(if (e.isDir) "The folder and everything in it will be permanently deleted from the server (rm -rf)." else "The file will be permanently deleted from the server.") },
+            confirmButton = { TextButton(onClick = { ws.delete(e); confirmDelete = null }) { Text("Delete", color = Ide.deleted) } },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Cancel") } },
         )
     }
     ws.saveConflict?.let { c ->
         AlertDialog(
             onDismissRequest = { ws.saveConflict = null },
-            title = { Text("File berubah di server") },
-            text = { Text("${c.tab.title} diubah di server setelah Anda membukanya (mungkin oleh job atau editor lain). Timpa dengan versi di tablet, atau muat ulang dari server?") },
-            confirmButton = { TextButton(onClick = { ws.saveConflict = null; ws.save(c.tab, overwrite = true) }) { Text("Timpa") } },
+            title = { Text("File changed on the server") },
+            text = { Text("${c.tab.title} changed on the server after you opened it, maybe by a job or another editor. Overwrite it with the tablet version, or reload it from the server?") },
+            confirmButton = { TextButton(onClick = { ws.saveConflict = null; ws.save(c.tab, overwrite = true) }) { Text("Overwrite") } },
             dismissButton = {
                 Row {
-                    TextButton(onClick = { ws.saveConflict = null; editors.remove(c.tab.key); ws.reloadFromRemote(c.tab) }) { Text("Muat ulang") }
-                    TextButton(onClick = { ws.saveConflict = null }) { Text("Batal") }
+                    TextButton(onClick = { ws.saveConflict = null; editors.remove(c.tab.key); ws.reloadFromRemote(c.tab) }) { Text("Reload") }
+                    TextButton(onClick = { ws.saveConflict = null }) { Text("Cancel") }
                 }
             },
         )
@@ -196,7 +196,7 @@ private fun AskDialog(a: Ask, onDismiss: () -> Unit) {
         title = { Text(a.title) },
         text = { OutlinedTextField(value, { value = it }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = Ide.itemShape) },
         confirmButton = { TextButton(onClick = { onDismiss(); a.onOk(value.trim()) }, enabled = value.isNotBlank()) { Text(a.confirm) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -224,10 +224,10 @@ private fun ActivityBar(ws: WorkspaceState, onDisconnect: () -> Unit) {
         ActivityIcon(Icons.Outlined.Terminal, "Terminal", ws.terminalVisible) { ws.terminalVisible = !ws.terminalVisible }
         Spacer(Modifier.weight(1f))
         Box {
-            ActivityIcon(Icons.Outlined.Settings, "Pengaturan", settings) { settings = true }
+            ActivityIcon(Icons.Outlined.Settings, "Settings", settings) { settings = true }
             SettingsMenu(ws, settings) { settings = false }
         }
-        ActivityIcon(Icons.Outlined.Logout, "Putuskan", false, onClick = onDisconnect)
+        ActivityIcon(Icons.Outlined.Logout, "Disconnect", false, onClick = onDisconnect)
     }
 }
 
@@ -235,7 +235,7 @@ private fun ActivityBar(ws: WorkspaceState, onDisconnect: () -> Unit) {
 private fun SettingsMenu(ws: WorkspaceState, open: Boolean, onClose: () -> Unit) {
     val p = ws.prefs
     DropdownMenu(open, onClose, shape = Ide.itemShape, containerColor = Ide.cardRaised) {
-        Text("FONT EDITOR & TERMINAL", style = Ide.section, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+        Text("EDITOR & TERMINAL FONT", style = Ide.section, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
         MonoFont.entries.forEach { f ->
             DropdownMenuItem(
                 text = { Text(f.label) },
@@ -245,17 +245,17 @@ private fun SettingsMenu(ws: WorkspaceState, open: Boolean, onClose: () -> Unit)
         }
         HorizontalDivider(color = Ide.border)
         DropdownMenuItem(
-            text = { Text(if (p.showHidden) "Sembunyikan file titik (.)" else "Tampilkan file titik (.)") },
+            text = { Text(if (p.showHidden) "Hide dotfiles" else "Show dotfiles") },
             leadingIcon = { Icon(if (p.showHidden) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, null, Modifier.size(18.dp)) },
             onClick = { p.showHidden = !p.showHidden },
         )
         DropdownMenuItem(
-            text = { Text("Huruf terminal: ${p.terminalTextSp.toInt()} sp") },
+            text = { Text("Terminal font size: ${p.terminalTextSp.toInt()} sp") },
             leadingIcon = { Spacer(Modifier.size(18.dp)) },
             trailingIcon = {
                 Row {
-                    SmallIcon(Icons.Outlined.TextDecrease, "Perkecil") { p.terminalTextSp -= 1f }
-                    SmallIcon(Icons.Outlined.TextIncrease, "Perbesar") { p.terminalTextSp += 1f }
+                    SmallIcon(Icons.Outlined.TextDecrease, "Zoom out") { p.terminalTextSp -= 1f }
+                    SmallIcon(Icons.Outlined.TextIncrease, "Zoom in") { p.terminalTextSp += 1f }
                 }
             },
             onClick = {},
@@ -313,7 +313,7 @@ fun PillSearch(value: String, onChange: (String) -> Unit, placeholder: String, m
             BasicTextField(value, onChange, singleLine = true, textStyle = Ide.label, cursorBrush = SolidColor(Ide.text), modifier = Modifier.fillMaxWidth())
         }
         if (value.isNotEmpty()) {
-            Icon(Icons.Outlined.Close, "Hapus", tint = Ide.textDim, modifier = Modifier.size(16.dp).clickable { onChange("") })
+            Icon(Icons.Outlined.Close, "Delete", tint = Ide.textDim, modifier = Modifier.size(16.dp).clickable { onChange("") })
         }
     }
 }
@@ -323,41 +323,41 @@ fun PillSearch(value: String, onChange: (String) -> Unit, placeholder: String, m
 private fun ExplorerPanel(ws: WorkspaceState, onAsk: (Ask) -> Unit, onDelete: (RemoteEntry) -> Unit) {
     val ctx = LocalContext.current
     PanelHeader("Explorer") {
-        SmallIcon(Icons.AutoMirrored.Outlined.NoteAdd, "File baru") {
-            onAsk(Ask("File baru di ${pathName(ws.root)}", "", "Buat") { ws.createFile(ws.root, it) })
+        SmallIcon(Icons.AutoMirrored.Outlined.NoteAdd, "New file") {
+            onAsk(Ask("New file in ${pathName(ws.root)}", "", "Create") { ws.createFile(ws.root, it) })
         }
-        SmallIcon(Icons.Outlined.CreateNewFolder, "Folder baru") {
-            onAsk(Ask("Folder baru di ${pathName(ws.root)}", "", "Buat") { ws.createFolder(ws.root, it) })
+        SmallIcon(Icons.Outlined.CreateNewFolder, "New folder") {
+            onAsk(Ask("New folder in ${pathName(ws.root)}", "", "Create") { ws.createFolder(ws.root, it) })
         }
-        SmallIcon(Icons.Outlined.Refresh, "Muat ulang") { ws.refreshAll() }
-        SmallIcon(Icons.Outlined.UnfoldLess, "Ciutkan") { ws.collapseAll() }
+        SmallIcon(Icons.Outlined.Refresh, "Reload") { ws.refreshAll() }
+        SmallIcon(Icons.Outlined.UnfoldLess, "Collapse all") { ws.collapseAll() }
     }
-    PillSearch(ws.filter, { ws.filter = it }, "Cari file", Modifier.fillMaxWidth().padding(horizontal = 14.dp))
+    PillSearch(ws.filter, { ws.filter = it }, "Search files", Modifier.fillMaxWidth().padding(horizontal = 14.dp))
     Row(
         Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
             Modifier.weight(1f).clip(Ide.itemShape)
-                .clickable { onAsk(Ask("Buka folder di server", ws.root, "Buka") { ws.openFolder(it) }) }
+                .clickable { onAsk(Ask("Open folder on the server", ws.root, "Open") { ws.openFolder(it) }) }
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(pathName(ws.root).uppercase(), style = Ide.section.copy(color = Ide.text, fontWeight = FontWeight.Bold),
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            Icon(Icons.Outlined.DriveFileMove, "Ganti folder", tint = Ide.textDim, modifier = Modifier.padding(start = 6.dp).size(15.dp))
+            Icon(Icons.Outlined.DriveFileMove, "Change folder", tint = Ide.textDim, modifier = Modifier.padding(start = 6.dp).size(15.dp))
         }
         SmallIcon(
             if (ws.prefs.showHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-            if (ws.prefs.showHidden) "Sembunyikan file titik" else "Tampilkan file titik",
+            if (ws.prefs.showHidden) "Hide dotfiles" else "Show dotfiles",
             tint = if (ws.prefs.showHidden) Ide.text else Ide.textDim,
         ) { ws.prefs.showHidden = !ws.prefs.showHidden }
     }
     val rows = ws.rows()
     when {
-        !ws.rootLoaded -> Text("Memuat ${ws.root}…", style = Ide.small.copy(color = Ide.textDim), modifier = Modifier.padding(18.dp))
-        rows.isEmpty() && ws.filter.isNotBlank() -> Text("Tidak ada file \"${ws.filter}\" di folder yang sudah dibuka.", style = Ide.small.copy(color = Ide.textDim), modifier = Modifier.padding(18.dp))
-        rows.isEmpty() -> Text("Folder kosong", style = Ide.small.copy(color = Ide.textDim), modifier = Modifier.padding(18.dp))
+        !ws.rootLoaded -> Text("Loading ${ws.root}…", style = Ide.small.copy(color = Ide.textDim), modifier = Modifier.padding(18.dp))
+        rows.isEmpty() && ws.filter.isNotBlank() -> Text("No files match \"${ws.filter}\" in the folders opened so far.", style = Ide.small.copy(color = Ide.textDim), modifier = Modifier.padding(18.dp))
+        rows.isEmpty() -> Text("Empty folder", style = Ide.small.copy(color = Ide.textDim), modifier = Modifier.padding(18.dp))
     }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
         items(rows, key = { it.entry.path }) { row ->
@@ -394,22 +394,22 @@ private fun ExplorerPanel(ws: WorkspaceState, onAsk: (Ask) -> Unit, onDelete: (R
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, shape = Ide.itemShape, containerColor = Ide.cardRaised) {
                     val dir = if (e.isDir) e.path else pathParent(e.path)
                     if (!e.isDir && Languages.runKind(e.name) != null) {
-                        DropdownMenuItem(text = { Text("Jalankan di terminal") }, onClick = { menu = false; ws.runFile(e.path) })
-                        DropdownMenuItem(text = { Text("Kirim ke SLURM (sbatch)") }, onClick = { menu = false; ws.runFile(e.path, slurm = true) })
+                        DropdownMenuItem(text = { Text("Run in terminal") }, onClick = { menu = false; ws.runFile(e.path) })
+                        DropdownMenuItem(text = { Text("Submit to SLURM (sbatch)") }, onClick = { menu = false; ws.runFile(e.path, slurm = true) })
                     }
-                    DropdownMenuItem(text = { Text("File baru…") }, onClick = {
-                        menu = false; onAsk(Ask("File baru di ${pathName(dir)}", "", "Buat") { ws.createFile(dir, it) })
+                    DropdownMenuItem(text = { Text("New file…") }, onClick = {
+                        menu = false; onAsk(Ask("New file in ${pathName(dir)}", "", "Create") { ws.createFile(dir, it) })
                     })
-                    DropdownMenuItem(text = { Text("Folder baru…") }, onClick = {
-                        menu = false; onAsk(Ask("Folder baru di ${pathName(dir)}", "", "Buat") { ws.createFolder(dir, it) })
+                    DropdownMenuItem(text = { Text("New folder…") }, onClick = {
+                        menu = false; onAsk(Ask("New folder in ${pathName(dir)}", "", "Create") { ws.createFolder(dir, it) })
                     })
-                    if (e.isDir) DropdownMenuItem(text = { Text("Jadikan folder kerja") }, onClick = { menu = false; ws.openFolder(e.path) })
-                    DropdownMenuItem(text = { Text("Buka terminal di sini") }, onClick = { menu = false; ws.cdInTerminal(dir) })
-                    DropdownMenuItem(text = { Text("Ganti nama…") }, onClick = {
-                        menu = false; onAsk(Ask("Ganti nama ${e.name}", e.name, "Ganti") { ws.rename(e, it) })
+                    if (e.isDir) DropdownMenuItem(text = { Text("Set as working folder") }, onClick = { menu = false; ws.openFolder(e.path) })
+                    DropdownMenuItem(text = { Text("Open terminal here") }, onClick = { menu = false; ws.cdInTerminal(dir) })
+                    DropdownMenuItem(text = { Text("Rename…") }, onClick = {
+                        menu = false; onAsk(Ask("Rename ${e.name}", e.name, "Rename") { ws.rename(e, it) })
                     })
-                    DropdownMenuItem(text = { Text("Salin path") }, onClick = { menu = false; copy(ctx, e.path); ws.message = "Path disalin" })
-                    DropdownMenuItem(text = { Text("Hapus…", color = Ide.deleted) }, onClick = { menu = false; onDelete(e) })
+                    DropdownMenuItem(text = { Text("Copy path") }, onClick = { menu = false; copy(ctx, e.path); ws.message = "Path copied" })
+                    DropdownMenuItem(text = { Text("Delete…", color = Ide.deleted) }, onClick = { menu = false; onDelete(e) })
                 }
             }
         }
@@ -461,11 +461,11 @@ private fun ColumnScope.GitPanel(ws: WorkspaceState) {
         SmallIcon(Icons.Outlined.ArrowDownward, "Pull", enabled = !g.busy && g.repo != null) { ws.gitPull() }
         SmallIcon(Icons.Outlined.ArrowUpward, "Push", enabled = !g.busy && g.repo != null) { ws.gitPush() }
         SmallIcon(Icons.Outlined.Sync, "Fetch", enabled = !g.busy && g.repo != null) { ws.gitFetch() }
-        SmallIcon(Icons.Outlined.Refresh, "Muat ulang") { ws.refreshGit() }
+        SmallIcon(Icons.Outlined.Refresh, "Reload") { ws.refreshGit() }
     }
     if (g.notRepo) {
         Column(Modifier.padding(18.dp)) {
-            Text("Folder ${pathName(ws.root)} belum menjadi repo git.", style = Ide.label.copy(color = Ide.textDim))
+            Text("${pathName(ws.root)} is not a Git repository yet.", style = Ide.label.copy(color = Ide.textDim))
             Spacer(Modifier.height(12.dp))
             FlatButton("git init", onClick = { ws.gitInit() })
         }
@@ -493,12 +493,12 @@ private fun ColumnScope.GitPanel(ws: WorkspaceState) {
             modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(Ide.itemShape).background(Ide.field)
                 .padding(horizontal = 14.dp, vertical = 11.dp),
             decorationBox = { inner ->
-                if (g.commitMessage.isEmpty()) Text("Pesan commit (di ${st?.branch ?: "…"})", style = Ide.label.copy(color = Ide.textDim))
+                if (g.commitMessage.isEmpty()) Text("Commit message (on ${st?.branch ?: "…"})", style = Ide.label.copy(color = Ide.textDim))
                 inner()
             },
         )
         Spacer(Modifier.height(10.dp))
-        FlatButton(if (g.busy) "Memproses…" else "Commit", enabled = !g.busy && st?.changes?.any { it.staged } == true,
+        FlatButton(if (g.busy) "Working…" else "Commit", enabled = !g.busy && st?.changes?.any { it.staged } == true,
             modifier = Modifier.fillMaxWidth()) { ws.gitCommit() }
         Spacer(Modifier.height(8.dp))
     }
@@ -507,17 +507,17 @@ private fun ColumnScope.GitPanel(ws: WorkspaceState) {
     val unstaged = changes.filter { it.unstaged || it.untracked || it.conflicted }
     LazyColumn(Modifier.weight(1f).padding(horizontal = 6.dp)) {
         if (staged.isNotEmpty()) {
-            item { GitSection("Staged", staged.size) { SmallIcon(Icons.Outlined.Remove, "Unstage semua") { ws.gitUnstage(staged.map { it.path }) } } }
+            item { GitSection("Staged", staged.size) { SmallIcon(Icons.Outlined.Remove, "Unstage all") { ws.gitUnstage(staged.map { it.path }) } } }
             items(staged, key = { "s:" + it.path }) { c -> GitRow(ws, c, staged = true) }
         }
         item {
-            GitSection("Perubahan", unstaged.size) {
-                if (unstaged.isNotEmpty()) SmallIcon(Icons.Outlined.Add, "Stage semua") { ws.gitStage(unstaged.map { it.path }) }
+            GitSection("Changes", unstaged.size) {
+                if (unstaged.isNotEmpty()) SmallIcon(Icons.Outlined.Add, "Stage all") { ws.gitStage(unstaged.map { it.path }) }
             }
         }
         items(unstaged, key = { "w:" + it.path }) { c -> GitRow(ws, c, staged = false) }
         if (st != null && changes.isEmpty()) {
-            item { Text("Tidak ada perubahan.", style = Ide.small.copy(color = Ide.textDim), modifier = Modifier.padding(16.dp)) }
+            item { Text("No changes.", style = Ide.small.copy(color = Ide.textDim), modifier = Modifier.padding(16.dp)) }
         }
     }
     if (g.output.isNotBlank()) {
@@ -555,8 +555,8 @@ private fun GitRow(ws: WorkspaceState, c: GitChange, staged: Boolean) {
         val dir = pathParent(c.path).takeIf { it != "." }
         Text(dir ?: "", style = Ide.small.copy(color = Ide.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(start = 6.dp).weight(1f))
-        if (!staged && !c.untracked) SmallIcon(Icons.AutoMirrored.Outlined.Undo, "Buang perubahan") { confirm = true }
-        if (!staged && !c.untracked) SmallIcon(Icons.Outlined.FileCopy, "Buka file") { ws.open(ws.absolute(c.path)) }
+        if (!staged && !c.untracked) SmallIcon(Icons.AutoMirrored.Outlined.Undo, "Discard changes") { confirm = true }
+        if (!staged && !c.untracked) SmallIcon(Icons.Outlined.FileCopy, "Open file") { ws.open(ws.absolute(c.path)) }
         if (staged) SmallIcon(Icons.Outlined.Remove, "Unstage") { ws.gitUnstage(listOf(c.path)) }
         else SmallIcon(Icons.Outlined.Add, "Stage") { ws.gitStage(listOf(c.path)) }
         Text(letter, style = Ide.small.copy(color = color, fontWeight = FontWeight.Bold), modifier = Modifier.width(14.dp))
@@ -564,10 +564,10 @@ private fun GitRow(ws: WorkspaceState, c: GitChange, staged: Boolean) {
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
-            title = { Text("Buang perubahan ${pathName(c.path)}?") },
-            text = { Text("Isi file akan dikembalikan ke versi commit terakhir (git checkout). Tidak bisa dibatalkan.") },
-            confirmButton = { TextButton(onClick = { confirm = false; ws.gitDiscard(listOf(c.path)) }) { Text("Buang", color = Ide.deleted) } },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Batal") } },
+            title = { Text("Discard changes to ${pathName(c.path)}?") },
+            text = { Text("The file is restored to the last committed version (git checkout). This cannot be undone.") },
+            confirmButton = { TextButton(onClick = { confirm = false; ws.gitDiscard(listOf(c.path)) }) { Text("Discard", color = Ide.deleted) } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
         )
     }
 }
@@ -605,21 +605,21 @@ private fun EditorArea(ws: WorkspaceState, editors: MutableMap<String, CodeEdito
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(Icons.Outlined.PlayArrow, null, tint = Ide.onPill, modifier = Modifier.size(16.dp))
-                        Text(" Jalankan", style = Ide.small.copy(color = Ide.onPill, fontWeight = FontWeight.SemiBold))
+                        Text(" Run", style = Ide.small.copy(color = Ide.onPill, fontWeight = FontWeight.SemiBold))
                     }
                     Box {
-                        SmallIcon(Icons.Outlined.KeyboardArrowDown, "Opsi jalankan") { runMenu = true }
+                        SmallIcon(Icons.Outlined.KeyboardArrowDown, "Run options") { runMenu = true }
                         DropdownMenu(runMenu, { runMenu = false }, shape = Ide.itemShape, containerColor = Ide.cardRaised) {
-                            DropdownMenuItem(text = { Text("Jalankan di terminal (Ctrl+Enter)") }, onClick = { runMenu = false; ws.runFile(tab.path) })
-                            DropdownMenuItem(text = { Text("Kirim ke SLURM (sbatch)") }, onClick = { runMenu = false; ws.runFile(tab.path, slurm = true) })
+                            DropdownMenuItem(text = { Text("Run in terminal (Ctrl+Enter)") }, onClick = { runMenu = false; ws.runFile(tab.path) })
+                            DropdownMenuItem(text = { Text("Submit to SLURM (sbatch)") }, onClick = { runMenu = false; ws.runFile(tab.path, slurm = true) })
                         }
                     }
                 }
-                SmallIcon(Icons.Outlined.Save, "Simpan", enabled = !tab.readOnly && tab.dirty && !tab.saving) { ws.save(tab) }
+                SmallIcon(Icons.Outlined.Save, "Save", enabled = !tab.readOnly && tab.dirty && !tab.saving) { ws.save(tab) }
                 SmallIcon(Icons.AutoMirrored.Outlined.Undo, "Undo", enabled = !tab.readOnly) { tab.undo?.invoke() }
                 SmallIcon(Icons.AutoMirrored.Outlined.Redo, "Redo", enabled = !tab.readOnly) { tab.redo?.invoke() }
-                SmallIcon(Icons.Outlined.TextDecrease, "Perkecil") { ws.editorTextSp -= 1f }
-                SmallIcon(Icons.Outlined.TextIncrease, "Perbesar") { ws.editorTextSp += 1f }
+                SmallIcon(Icons.Outlined.TextDecrease, "Zoom out") { ws.editorTextSp -= 1f }
+                SmallIcon(Icons.Outlined.TextIncrease, "Zoom in") { ws.editorTextSp += 1f }
             }
         }
         if (tab == null) {
@@ -686,7 +686,7 @@ private fun EditorTabChip(ws: WorkspaceState, t: EditorTab) {
         )
         Box(Modifier.size(26.dp).clip(RoundedCornerShape(8.dp)).clickable { ws.closeTab(t) }, contentAlignment = Alignment.Center) {
             if (t.dirty) Box(Modifier.size(8.dp).clip(Ide.pillShape).background(Ide.text))
-            else Icon(Icons.Outlined.Close, "Tutup", tint = if (active) Ide.text else Ide.textDim, modifier = Modifier.size(14.dp))
+            else Icon(Icons.Outlined.Close, "Close", tint = if (active) Ide.text else Ide.textDim, modifier = Modifier.size(14.dp))
         }
     }
 }
@@ -696,15 +696,15 @@ private fun Welcome(ws: WorkspaceState) {
     Column(Modifier.fillMaxSize().padding(48.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text("CodeTab", style = Ide.hero.copy(color = Color(0xFF3A3A3A)))
         Spacer(Modifier.height(6.dp))
-        Text("Semua file, proses, dan Python berjalan di ${ws.remote.label}", style = Ide.label.copy(color = Ide.textDim))
+        Text("All files, processes, and Python run on ${ws.remote.label}", style = Ide.label.copy(color = Ide.textDim))
         Spacer(Modifier.height(28.dp))
         listOf(
-            "Buka file" to "ketuk di Explorer",
-            "Simpan" to "Ctrl + S",
-            "Jalankan file" to "Ctrl + Enter",
-            "Tampilkan terminal" to "Ctrl + J",
-            "Tampilkan sidebar" to "Ctrl + B",
-            "Menu file" to "tekan lama di Explorer",
+            "Open file" to "tap in Explorer",
+            "Save" to "Ctrl + S",
+            "Run file" to "Ctrl + Enter",
+            "Toggle terminal" to "Ctrl + J",
+            "Toggle sidebar" to "Ctrl + B",
+            "File menu" to "long press in Explorer",
         ).forEach { (a, b) ->
             Row(Modifier.width(380.dp).padding(vertical = 4.dp)) {
                 Text(a, style = Ide.label.copy(color = Ide.textDim), modifier = Modifier.weight(1f))
@@ -741,17 +741,17 @@ private fun TerminalPanel(ws: WorkspaceState, modifier: Modifier) {
                     }
                 }
             }
-            SmallIcon(Icons.Outlined.Add, "Terminal baru", enabled = !ws.openingTerminal) { ws.newTerminal() }
-            SmallIcon(Icons.Outlined.ContentPaste, "Tempel") { clipboardText(ctx)?.let { term?.paste(it) } }
-            SmallIcon(Icons.Outlined.ContentCopy, "Salin layar") { term?.let { copy(ctx, it.terminal.screenText()); ws.message = "Isi layar disalin" } }
-            SmallIcon(if (ws.terminalMaximized) Icons.Outlined.KeyboardArrowDown else Icons.Outlined.KeyboardArrowUp, "Perbesar panel") {
+            SmallIcon(Icons.Outlined.Add, "New terminal", enabled = !ws.openingTerminal) { ws.newTerminal() }
+            SmallIcon(Icons.Outlined.ContentPaste, "Paste") { clipboardText(ctx)?.let { term?.paste(it) } }
+            SmallIcon(Icons.Outlined.ContentCopy, "Copy screen") { term?.let { copy(ctx, it.terminal.screenText()); ws.message = "Screen copied" } }
+            SmallIcon(if (ws.terminalMaximized) Icons.Outlined.KeyboardArrowDown else Icons.Outlined.KeyboardArrowUp, "Maximize panel") {
                 ws.terminalMaximized = !ws.terminalMaximized
             }
-            SmallIcon(Icons.Outlined.Close, "Tutup terminal", enabled = term != null) { term?.let { ws.closeTerminal(it) } }
+            SmallIcon(Icons.Outlined.Close, "Close terminal", enabled = term != null) { term?.let { ws.closeTerminal(it) } }
         }
         Box(Modifier.weight(1f).fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 4.dp)) {
             if (term == null) {
-                Text(if (ws.openingTerminal) "Membuka shell di server…" else "Belum ada terminal. Ketuk + untuk membuka shell.",
+                Text(if (ws.openingTerminal) "Opening a shell on the server…" else "No terminals yet. Tap + to open a shell.",
                     style = Ide.label.copy(color = Ide.textDim), modifier = Modifier.padding(8.dp))
             } else {
                 val font = ws.prefs.font
@@ -772,7 +772,7 @@ private fun TerminalPanel(ws: WorkspaceState, modifier: Modifier) {
                 }
                 term.exited?.let {
                     Text(
-                        "$it  ·  ketuk + untuk shell baru", style = Ide.small.copy(color = Ide.warning),
+                        "$it  ·  tap + for a new shell", style = Ide.small.copy(color = Ide.warning),
                         modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).clip(Ide.pillShape).background(Ide.bg).padding(horizontal = 12.dp, vertical = 6.dp),
                     )
                 }
@@ -832,7 +832,7 @@ private fun StatusBar(ws: WorkspaceState, onReconnect: () -> Unit) {
         ) {
             Box(Modifier.size(7.dp).clip(Ide.pillShape).background(if (lost) Ide.deleted else Ide.added))
             Icon(if (lost) Icons.Outlined.CloudOff else Icons.Outlined.Cloud, null, tint = Ide.text, modifier = Modifier.padding(start = 8.dp).size(14.dp))
-            Text(if (lost) "  Terputus · ketuk untuk sambung ulang" else "  ${ws.remote.label}", style = Ide.small)
+            Text(if (lost) "  Disconnected · tap to reconnect" else "  ${ws.remote.label}", style = Ide.small)
         }
         ws.git.status?.let { st ->
             Row(Modifier.clickable { ws.panel = SidePanel.Git; ws.sidebarVisible = true }, verticalAlignment = Alignment.CenterVertically) {
@@ -845,7 +845,7 @@ private fun StatusBar(ws: WorkspaceState, onReconnect: () -> Unit) {
         ws.activeTab?.let { t ->
             if (t.viewer == null) {
                 Text("Ln ${t.cursorLine}, Col ${t.cursorCol}", style = dim)
-                Text("Spasi: 4", style = dim)
+                Text("Spaces: 4", style = dim)
                 Text("UTF-8", style = dim)
             }
             Text(t.language, style = dim)

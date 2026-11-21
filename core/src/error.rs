@@ -9,11 +9,11 @@ pub enum CoreError {
     HostKeyRejected(String),
     #[error("{0}")]
     Io(String),
-    #[error("File terlalu besar untuk editor ({size} byte): {path}")]
+    #[error("File too large for the editor ({size} bytes): {path}")]
     TooLarge { path: String, size: u64 },
     #[error("{0}")]
     Key(String),
-    #[error("Koneksi sudah tertutup")]
+    #[error("Connection closed")]
     Closed,
 }
 

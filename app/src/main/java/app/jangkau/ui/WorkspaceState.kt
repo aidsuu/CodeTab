@@ -83,7 +83,7 @@ class TermTab(val id: Int, val terminal: Terminal) : TerminalSource, TerminalLis
     fun paste(text: String) { terminal.send(encodePaste(text, terminal.snapshot(0u).bracketedPaste)) }
 
     override fun onUpdate() { onUpdate?.invoke() }
-    override fun onExit(message: String?) { exited = message ?: "Shell selesai"; onUpdate?.invoke() }
+    override fun onExit(message: String?) { exited = message ?: "Shell exited"; onUpdate?.invoke() }
 }
 
 class GitState {
@@ -178,10 +178,10 @@ class WorkspaceState(
         val old = remote
         remote = newRemote
         connectionLost = false
-        terminals.forEach { if (it.exited == null) it.exited = "Koneksi lama terputus" }
+        terminals.forEach { if (it.exited == null) it.exited = "Previous connection lost" }
         scope.launch(io) { runCatching { old.close() } }
         refreshAll()
-        message = "Tersambung kembali ke ${newRemote.label}"
+        message = "Reconnected to ${newRemote.label}"
     }
 
     fun openFolder(path: String) {
@@ -195,7 +195,7 @@ class WorkspaceState(
 
     fun refreshDir(dir: String) {
         loading[dir] = true
-        launchIo("Gagal membaca folder") {
+        launchIo("Could not read the folder") {
             val list = remote.list(dir)
             withMain { children[dir] = list }
         }.invokeOnCompletion { loading.remove(dir) }
@@ -222,22 +222,22 @@ class WorkspaceState(
         if (open) expanded[dir] = true
     }
 
-    fun createFile(dir: String, name: String) = launchIo("Gagal membuat file") {
+    fun createFile(dir: String, name: String) = launchIo("Could not create the file") {
         val path = pathJoin(dir, name)
-        if (remote.stat(path) != null) throw IllegalStateException("$name sudah ada")
+        if (remote.stat(path) != null) throw IllegalStateException("$name already exists")
         remote.write(path, ByteArray(0))
         withMain { expanded[dir] = true }
         reloadDir(dir)
         withMain { open(path) }
     }
 
-    fun createFolder(dir: String, name: String) = launchIo("Gagal membuat folder") {
+    fun createFolder(dir: String, name: String) = launchIo("Could not create the folder") {
         remote.mkdir(pathJoin(dir, name))
         withMain { expanded[dir] = true }
         reloadDir(dir)
     }
 
-    fun rename(entry: RemoteEntry, newName: String) = launchIo("Gagal mengganti nama") {
+    fun rename(entry: RemoteEntry, newName: String) = launchIo("Could not rename") {
         val target = pathJoin(pathParent(entry.path), newName)
         remote.rename(entry.path, target)
         reloadDir(pathParent(entry.path))
@@ -246,13 +246,13 @@ class WorkspaceState(
         }
     }
 
-    fun delete(entry: RemoteEntry) = launchIo("Gagal menghapus") {
+    fun delete(entry: RemoteEntry) = launchIo("Could not delete") {
         remote.delete(entry.path, entry.isDir)
         reloadDir(pathParent(entry.path))
         withMain {
             tabs.filter { it.path == entry.path || pathRelativeTo(it.path, entry.path) != null }
                 .forEach { closeTab(it, force = true) }
-            message = "${entry.name} dihapus"
+            message = "${entry.name} deleted"
         }
         refreshGit()
     }
@@ -266,10 +266,10 @@ class WorkspaceState(
         tabs.firstOrNull { it.key == path }?.let { activeKey = it.key; return }
         val viewer = Languages.viewer(pathName(path))
         if (viewer != null) { openMedia(path, viewer); return }
-        launchIo("Gagal membuka file") {
+        launchIo("Could not open the file") {
             val st = remote.stat(path)
             val bytes = remote.read(path, Remote.MAX_EDIT_BYTES)
-            if (bytes.take(8000).any { it == 0.toByte() }) throw IllegalStateException("File biner tidak bisa dibuka di editor")
+            if (bytes.take(8000).any { it == 0.toByte() }) throw IllegalStateException("Binary files cannot be opened in the editor")
             val text = bytes.toString(Charsets.UTF_8)
             withMain {
                 val tab = EditorTab(path, path, pathName(path), text, st?.mtime?.toLong() ?: 0L)
@@ -279,7 +279,7 @@ class WorkspaceState(
         }
     }
 
-    private fun openMedia(path: String, viewer: Languages.Viewer) = launchIo("Gagal membuka ${pathName(path)}") {
+    private fun openMedia(path: String, viewer: Languages.Viewer) = launchIo("Could not open ${pathName(path)}") {
         val st = remote.stat(path)
         val bytes = remote.read(path, MAX_MEDIA_BYTES)
         cacheDir.mkdirs()
@@ -288,7 +288,7 @@ class WorkspaceState(
         local.writeBytes(bytes)
         withMain {
             val tab = EditorTab(path, path, pathName(path), "", st?.mtime?.toLong() ?: 0L, readOnly = true,
-                language = if (viewer == Languages.Viewer.Pdf) "PDF" else "Gambar", viewer = viewer, file = local, size = bytes.size.toLong())
+                language = if (viewer == Languages.Viewer.Pdf) "PDF" else "Image", viewer = viewer, file = local, size = bytes.size.toLong())
             tabs += tab
             activeKey = tab.key
         }
@@ -304,7 +304,7 @@ class WorkspaceState(
     fun closeTab(tab: EditorTab, force: Boolean = false) {
         tab.file?.takeIf { f -> tabs.none { it !== tab && it.file == f } }?.delete()
         if (tab.dirty && !force) {
-            message = "${tab.title} belum disimpan. Simpan dulu atau tutup lagi untuk membuang perubahan."
+            message = "${tab.title} has unsaved changes. Save it, or close it again to discard them."
             tab.dirty = false
             return
         }
@@ -316,7 +316,7 @@ class WorkspaceState(
     fun save(tab: EditorTab? = activeTab, overwrite: Boolean = false) {
         if (tab == null || tab.readOnly || tab.saving) return
         tab.saving = true
-        launchIo("Gagal menyimpan") {
+        launchIo("Could not save") {
             val st = remote.stat(tab.path)
             val remoteMtime = st?.mtime?.toLong() ?: 0L
             if (!overwrite && st != null && tab.mtime != 0L && remoteMtime != tab.mtime) {
@@ -328,7 +328,7 @@ class WorkspaceState(
             withMain {
                 tab.mtime = after
                 tab.dirty = false
-                message = "Tersimpan: ${tab.title}"
+                message = "Saved ${tab.title}"
             }
             refreshGit()
         }.invokeOnCompletion { tab.saving = false }
@@ -352,7 +352,7 @@ class WorkspaceState(
             override fun onUpdate() { tab?.onUpdate() }
             override fun onExit(message: String?) { tab?.onExit(message) }
         }
-        launchIo("Gagal membuka terminal") {
+        launchIo("Could not open a terminal") {
             val t = remote.openTerminal(cols, rows, holder)
             withMain {
                 val tt = TermTab(id, t).also { it.title = "bash $id" }
@@ -394,7 +394,7 @@ class WorkspaceState(
             slurm || kind == Languages.RunKind.Slurm -> "sbatch $file"
             kind == Languages.RunKind.Python -> "${profile.pythonCmd} $file"
             kind == Languages.RunKind.Shell -> "bash $file"
-            else -> { message = "Tipe file ini tidak bisa dijalankan langsung"; return }
+            else -> { message = "This file type cannot be run directly"; return }
         }
         terminalVisible = true
         withTerminal { it.type("cd $dir && $cmd\r") }
@@ -421,10 +421,10 @@ class WorkspaceState(
     private fun gitRun(op: GitOp, label: String, refresh: Boolean = true) {
         val repo = git.repo ?: root
         git.busy = true
-        launchIo("git $label gagal") {
+        launchIo("git $label failed") {
             val r = remote.exec(gitCommand(repo, op), 300)
             withMain {
-                git.output = r.combined.ifEmpty { if (r.ok) "git $label selesai" else "git $label gagal (kode ${r.exitCode})" }
+                git.output = r.combined.ifEmpty { if (r.ok) "git $label done" else "git $label failed (exit ${r.exitCode})" }
                 if (op is GitOp.Commit && r.ok) git.commitMessage = ""
             }
             if (refresh) refreshGit()
@@ -436,7 +436,7 @@ class WorkspaceState(
     fun gitDiscard(paths: List<String>) = gitRun(GitOp.Discard(paths), "checkout")
     fun gitCommit() {
         val msg = git.commitMessage.trim()
-        if (msg.isEmpty()) { message = "Tulis pesan commit dulu"; return }
+        if (msg.isEmpty()) { message = "Write a commit message first"; return }
         gitRun(GitOp.Commit(msg), "commit")
     }
     fun gitPull() = gitRun(GitOp.Pull, "pull")
@@ -446,10 +446,10 @@ class WorkspaceState(
 
     fun openDiff(change: GitChange, staged: Boolean) {
         val repo = git.repo ?: return
-        launchIo("Gagal membaca diff") {
+        launchIo("Could not read the diff") {
             val op = if (change.untracked) GitOp.DiffUntracked(change.path) else GitOp.Diff(change.path, staged)
             val r = remote.exec(gitCommand(repo, op), 60)
-            val text = r.stdout.ifEmpty { r.combined.ifEmpty { "(tidak ada perbedaan)" } }
+            val text = r.stdout.ifEmpty { r.combined.ifEmpty { "(no differences)" } }
             withMain { openReadOnly("diff:${if (staged) "s" else "w"}:${change.path}", "${pathName(change.path)}.diff", text) }
         }
     }

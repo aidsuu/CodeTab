@@ -92,10 +92,10 @@ fun ImageViewer(tab: EditorTab) {
     Column(Modifier.fillMaxSize()) {
         val l = loaded
         ViewerBar(
-            if (l == null) "Memuat gambar…" else "${l.second.first} × ${l.second.second} px  ·  ${humanSize(tab.size)}  ·  ${(scale * 100).toInt()}%",
+            if (l == null) "Loading image…" else "${l.second.first} × ${l.second.second} px  ·  ${humanSize(tab.size)}  ·  ${(scale * 100).toInt()}%",
         ) {
-            SmallIcon(Icons.Outlined.ZoomOut, "Perkecil") { scale = (scale / 1.25f).coerceAtLeast(0.2f) }
-            SmallIcon(Icons.Outlined.ZoomIn, "Perbesar") { scale = (scale * 1.25f).coerceAtMost(12f) }
+            SmallIcon(Icons.Outlined.ZoomOut, "Zoom out") { scale = (scale / 1.25f).coerceAtLeast(0.2f) }
+            SmallIcon(Icons.Outlined.ZoomIn, "Zoom in") { scale = (scale * 1.25f).coerceAtMost(12f) }
         }
         Box(
             Modifier.weight(1f).fillMaxWidth().padding(12.dp).clip(Ide.itemShape).background(Color(0xFF111111))
@@ -109,7 +109,7 @@ fun ImageViewer(tab: EditorTab) {
             contentAlignment = Alignment.Center,
         ) {
             if (l == null) {
-                Text(if (tab.size > 0) "Memuat…" else "Gambar tidak bisa dibaca", style = Ide.label.copy(color = Ide.textDim))
+                Text(if (tab.size > 0) "Loading…" else "Could not read the image", style = Ide.label.copy(color = Ide.textDim))
             } else {
                 Image(
                     l.first, tab.title,
@@ -153,7 +153,7 @@ fun PdfViewer(tab: EditorTab) {
     var error by remember(file) { mutableStateOf<String?>(null) }
     LaunchedEffect(file) {
         runCatching { withContext(Dispatchers.IO) { PdfDoc(file) } }
-            .onSuccess { doc = it }.onFailure { error = "PDF tidak bisa dibuka: ${it.message ?: it.javaClass.simpleName}" }
+            .onSuccess { doc = it }.onFailure { error = "Could not open the PDF: ${it.message ?: it.javaClass.simpleName}" }
     }
     DisposableEffect(file) { onDispose { doc?.close() } }
     var zoom by remember(file) { mutableFloatStateOf(1f) }
@@ -163,12 +163,12 @@ fun PdfViewer(tab: EditorTab) {
         ViewerBar(
             when {
                 error != null -> error!!
-                d == null -> "Memuat PDF…"
-                else -> "Halaman ${list.firstVisibleItemIndex + 1} / ${d.pageCount}  ·  ${humanSize(tab.size)}  ·  ${(zoom * 100).toInt()}%"
+                d == null -> "Loading PDF…"
+                else -> "Page ${list.firstVisibleItemIndex + 1} / ${d.pageCount}  ·  ${humanSize(tab.size)}  ·  ${(zoom * 100).toInt()}%"
             },
         ) {
-            SmallIcon(Icons.Outlined.ZoomOut, "Perkecil") { zoom = (zoom / 1.2f).coerceAtLeast(0.5f) }
-            SmallIcon(Icons.Outlined.ZoomIn, "Perbesar") { zoom = (zoom * 1.2f).coerceAtMost(4f) }
+            SmallIcon(Icons.Outlined.ZoomOut, "Zoom out") { zoom = (zoom / 1.2f).coerceAtLeast(0.5f) }
+            SmallIcon(Icons.Outlined.ZoomIn, "Zoom in") { zoom = (zoom * 1.2f).coerceAtMost(4f) }
         }
         if (d == null) return@Column
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -188,7 +188,7 @@ fun PdfViewer(tab: EditorTab) {
                         Modifier.width(pageWidth).aspectRatio(1f / d.ratios[i]).background(Color.White),
                         contentAlignment = Alignment.Center,
                     ) {
-                        bmp?.let { Image(it, "Halaman ${i + 1}", Modifier.fillMaxSize()) }
+                        bmp?.let { Image(it, "Page ${i + 1}", Modifier.fillMaxSize()) }
                             ?: Text("${i + 1}", style = Ide.label.copy(color = Color.Gray))
                     }
                 }

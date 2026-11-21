@@ -36,9 +36,9 @@ class ScreenshotTest {
     @get:Rule val compose = createComposeRule()
 
     private val profile = HostProfile(
-        name = "Server Lab", host = "dev.example.com", user = "user", keyId = "k1",
-        jump = Hop("bastion.example.com", 22, "user"), workDir = "~/proyek-iklim",
-        pythonCmd = "conda run -n iklim python",
+        name = "Lab Server", host = "dev.example.com", user = "user", keyId = "k1",
+        jump = Hop("bastion.example.com", 22, "user"), workDir = "~/climate-model",
+        pythonCmd = "conda run -n climate python",
     )
 
     private val trainPy = """
@@ -78,12 +78,12 @@ class ScreenshotTest {
         |""".trimMargin()
 
     private fun fakeServer() = FakeRemote().apply {
-        val root = "/home/user/proyek-iklim"
+        val root = "/home/user/climate-model"
         dir("$root/data"); dir("$root/notebooks"); dir("$root/runs")
         file("$root/.gitignore", "runs/\n")
-        file("$root/README.md", "# Proyek iklim\n")
+        file("$root/README.md", "# Climate model\n")
         file("$root/requirements.txt", "torch\nnumpy\n")
-        file("$root/environment.yml", "name: iklim\n")
+        file("$root/environment.yml", "name: climate\n")
         file("$root/src/model.py", "class RainNet: ...\n")
         file("$root/src/data.py", "def load_era5(p): ...\n")
         file("$root/src/train.py", trainPy)
@@ -100,12 +100,12 @@ class ScreenshotTest {
         ws.preload("$root/jobs", server.list("$root/jobs"), open = true)
         ws.git.repo = root
         ws.git.status = parseGitStatus("## main...origin/main [ahead 2]\u0000 M src/train.py\u0000M  jobs/train.slurm\u0000?? jobs/sweep.sh\u0000")
-        ws.git.commitMessage = if (panel == SidePanel.Git) "Tambah sweep learning rate" else ""
+        ws.git.commitMessage = if (panel == SidePanel.Git) "Add learning rate sweep" else ""
         ws.panel = panel
         val tab = EditorTab("$root/src/train.py", "$root/src/train.py", "train.py", trainPy, 1)
         tab.dirty = true
         tab.cursorLine = 21; tab.cursorCol = 30
-        ws.tabs += EditorTab("$root/README.md", "$root/README.md", "README.md", "# Proyek iklim\n", 1)
+        ws.tabs += EditorTab("$root/README.md", "$root/README.md", "README.md", "# Climate model\n", 1)
         ws.tabs += tab
         ws.tabs += EditorTab("$root/jobs/train.slurm", "$root/jobs/train.slurm", "train.slurm", "#!/bin/bash\n", 1)
         ws.activeKey = tab.key
@@ -114,14 +114,14 @@ class ScreenshotTest {
         val term = Terminal(150u, 14u)
         val esc = "\u001b"
         term.feed((
-            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/proyek-iklim$esc[0m$ git pull --ff-only\r\n" +
+            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/climate-model$esc[0m$ git pull --ff-only\r\n" +
             "Already up to date.\r\n" +
-            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/proyek-iklim$esc[0m$ nvidia-smi --query-gpu=name,memory.used --format=csv,noheader\r\n" +
+            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/climate-model$esc[0m$ nvidia-smi --query-gpu=name,memory.used --format=csv,noheader\r\n" +
             "NVIDIA A100-SXM4-80GB, 1024 MiB\r\n" +
-            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/proyek-iklim$esc[0m$ cd src && python train.py --epochs 3\r\n" +
+            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/climate-model$esc[0m$ cd src && python train.py --epochs 3\r\n" +
             "epoch 000  loss 0.8412\r\nepoch 001  loss 0.5127\r\nepoch 002  loss $esc[33m0.3981$esc[0m\r\n" +
             "$esc[32m0.3981$esc[0m\r\n" +
-            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/proyek-iklim/src$esc[0m$ "
+            "$esc[1;32muser@dev$esc[0m:$esc[1;34m~/climate-model/src$esc[0m$ "
         ).toByteArray())
         ws.attachTerminal(term, "bash 1")
         ws.attachTerminal(Terminal(80u, 10u), "nvidia-smi")
@@ -180,7 +180,7 @@ class ScreenshotTest {
                         app.jangkau.core.RemoteEntry("$root/runs/report.pdf", "report.pdf", false, false, 120_000u, 0u),
                     ), open = true)
                     val t = EditorTab("$root/runs/loss.png", "$root/runs/loss.png", "loss.png", "", 1, readOnly = true,
-                        language = "Gambar", viewer = app.jangkau.editor.Languages.Viewer.Image, file = f, size = f.length())
+                        language = "Image", viewer = app.jangkau.editor.Languages.Viewer.Image, file = f, size = f.length())
                     w.tabs += t
                     w.activeKey = t.key
                     w.terminalVisible = false
@@ -194,12 +194,12 @@ class ScreenshotTest {
 
     @Test fun connectScreen() {
         val keys = listOf(
-            StoredKey("k1", "tablet", "ed25519", "ssh-ed25519 AAAAC3Nza... tablet@jangkau", "SHA256:q7Xh1y0kq2c9PZ0r3y1v8m1Wf0bS6yA2nJ4dC5eR8tU", false, 1),
-            StoredKey("k2", "laptop lama", "OpenSSH", null, "SHA256:Zt1o0b9Vq3m5L8xP2kR7wN4cJ6hF1aE9sD3gB5uY7iQ", true, 2),
+            StoredKey("k1", "tablet", "ed25519", "ssh-ed25519 AAAAC3Nza... tablet@codetab", "SHA256:q7Xh1y0kq2c9PZ0r3y1v8m1Wf0bS6yA2nJ4dC5eR8tU", false, 1),
+            StoredKey("k2", "old laptop", "OpenSSH", null, "SHA256:Zt1o0b9Vq3m5L8xP2kR7wN4cJ6hF1aE9sD3gB5uY7iQ", true, 2),
         )
         val profiles = listOf(
             profile,
-            HostProfile(name = "Workstation GPU", host = "gpu-box.local", port = 2222, user = "user", keyId = "k2", workDir = "~/work", pythonCmd = "python3"),
+            HostProfile(name = "GPU Workstation", host = "gpu-box.local", port = 2222, user = "user", keyId = "k2", workDir = "~/work", pythonCmd = "python3"),
         )
         compose.setContent {
             JangkauTheme {

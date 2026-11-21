@@ -109,7 +109,7 @@ impl client::Handler for ClientHandler {
             );
         } else {
             *self.rejected.lock().unwrap() = Some(format!(
-                "Host key {} tidak dipercaya, koneksi dibatalkan",
+                "Host key for {} not trusted, connection cancelled",
                 self.host
             ));
         }
@@ -144,25 +144,25 @@ fn describe_connect(e: russh::Error, host: &str, rejected: &StdMutex<Option<Stri
     }
     match e {
         russh::Error::IO(io) => match io.kind() {
-            std::io::ErrorKind::ConnectionRefused => {
-                CoreError::Connect(format!("Koneksi ke {host} ditolak (cek host dan port)"))
-            }
+            std::io::ErrorKind::ConnectionRefused => CoreError::Connect(format!(
+                "Connection to {host} refused (check the host and port)"
+            )),
             std::io::ErrorKind::TimedOut => CoreError::Connect(format!(
-                "Waktu habis menyambung ke {host} (cek jaringan/VPN)"
+                "Timed out connecting to {host} (check the network or VPN)"
             )),
             _ if io.to_string().contains("failed to lookup")
                 || io.to_string().contains("Name or service") =>
             {
                 CoreError::Connect(format!(
-                    "Host {host} tidak ditemukan (cek nama host atau VPN)"
+                    "Host {host} not found (check the host name or VPN)"
                 ))
             }
-            _ => CoreError::Connect(format!("Gagal menyambung ke {host}: {io}")),
+            _ => CoreError::Connect(format!("Could not connect to {host}: {io}")),
         },
         russh::Error::UnknownKey => {
-            CoreError::HostKeyRejected(format!("Host key {host} tidak dipercaya"))
+            CoreError::HostKeyRejected(format!("Host key for {host} not trusted"))
         }
-        other => CoreError::Connect(format!("Gagal menyambung ke {host}: {other}")),
+        other => CoreError::Connect(format!("Could not connect to {host}: {other}")),
     }
 }
 
@@ -181,13 +181,16 @@ async fn authenticate(handle: &mut ClientHandle, hop: &Hop) -> Result<(), CoreEr
         )
         .await
         .map_err(|e| {
-            CoreError::Auth(format!("Autentikasi {}@{} gagal: {e}", hop.user, hop.host))
+            CoreError::Auth(format!(
+                "Authentication for {}@{} failed: {e}",
+                hop.user, hop.host
+            ))
         })?;
     if res.success() {
         Ok(())
     } else {
         Err(CoreError::Auth(format!(
-            "Autentikasi {}@{} ditolak. Pastikan public key sudah ada di ~/.ssh/authorized_keys dan nama user benar.",
+            "Authentication for {}@{} was rejected. Make sure the public key is in ~/.ssh/authorized_keys and the user name is correct.",
             hop.user, hop.host
         )))
     }
@@ -215,7 +218,7 @@ async fn with_timeout<T>(
 ) -> Result<T, CoreError> {
     match tokio::time::timeout(Duration::from_secs(secs.max(5) as u64), f).await {
         Ok(r) => r,
-        Err(_) => Err(CoreError::Connect(format!("Waktu habis: {what}"))),
+        Err(_) => Err(CoreError::Connect(format!("Timed out: {what}"))),
     }
 }
 
@@ -229,15 +232,15 @@ async fn connect_async(
 
     let jump = match &cfg.jump {
         Some(j) => {
-            listener.progress(format!("Menyambung ke jump host {}…", j.host));
+            listener.progress(format!("Connecting to jump host {}…", j.host));
             let h = handler(j, &cfg, &listener, &rejected);
-            let mut handle = with_timeout(t, &format!("menyambung ke {}", j.host), async {
+            let mut handle = with_timeout(t, &format!("connecting to {}", j.host), async {
                 client::connect(config.clone(), (j.host.as_str(), j.port), h)
                     .await
                     .map_err(|e| describe_connect(e, &j.host, &rejected))
             })
             .await?;
-            listener.progress(format!("Autentikasi {}@{}…", j.user, j.host));
+            listener.progress(format!("Authenticating {}@{}…", j.user, j.host));
             authenticate(&mut handle, j).await?;
             Some(handle)
         }
@@ -249,7 +252,7 @@ async fn connect_async(
     let mut handle = match &jump {
         Some(jh) => {
             listener.progress(format!(
-                "Membuka tunnel ke {}:{}…",
+                "Opening tunnel to {}:{}…",
                 target.host, target.port
             ));
             let ch = jh
@@ -257,7 +260,7 @@ async fn connect_async(
                 .await
                 .map_err(|e| {
                     CoreError::Connect(format!(
-                        "Jump host menolak tunnel ke {}:{}: {e}",
+                        "Jump host refused the tunnel to {}:{}: {e}",
                         target.host, target.port
                     ))
                 })?;
@@ -269,8 +272,8 @@ async fn connect_async(
             .await?
         }
         None => {
-            listener.progress(format!("Menyambung ke {}…", target.host));
-            with_timeout(t, &format!("menyambung ke {}", target.host), async {
+            listener.progress(format!("Connecting to {}…", target.host));
+            with_timeout(t, &format!("connecting to {}", target.host), async {
                 client::connect(config.clone(), (target.host.as_str(), target.port), h)
                     .await
                     .map_err(|e| describe_connect(e, &target.host, &rejected))
@@ -278,10 +281,10 @@ async fn connect_async(
             .await?
         }
     };
-    listener.progress(format!("Autentikasi {}@{}…", target.user, target.host));
+    listener.progress(format!("Authenticating {}@{}…", target.user, target.host));
     authenticate(&mut handle, target).await?;
 
-    listener.progress("Membuka SFTP…".into());
+    listener.progress("Opening SFTP…".into());
     let ch = handle.channel_open_session().await?;
     ch.request_subsystem(true, "sftp").await?;
     let sftp = SftpSession::new(ch.into_stream()).await?;
@@ -416,7 +419,7 @@ impl Session {
             let r = self.exec(format!("rm -rf -- {}", quote(&path)), 120)?;
             if r.exit_code != 0 {
                 return Err(CoreError::Io(format!(
-                    "Gagal menghapus {path}: {}",
+                    "Could not delete {path}: {}",
                     r.stderr.trim()
                 )));
             }
@@ -438,7 +441,7 @@ impl Session {
                     Err(_) => {
                         let _ = ch.close().await;
                         return Err(CoreError::Io(format!(
-                            "Perintah melewati batas waktu {timeout_secs} detik"
+                            "Command exceeded the {timeout_secs} second time limit"
                         )));
                     }
                     Ok(None) => break,
@@ -451,7 +454,7 @@ impl Session {
                     }
                     Ok(Some(ChannelMsg::ExitSignal { signal_name, .. })) => {
                         err.extend_from_slice(
-                            format!("\n(dihentikan sinyal {signal_name:?})").as_bytes(),
+                            format!("\n(killed by signal {signal_name:?})").as_bytes(),
                         );
                         code = Some(128);
                     }
@@ -512,13 +515,13 @@ impl Session {
                             listener.on_update();
                         }
                         Some(ChannelMsg::ExitStatus { exit_status }) => {
-                            exit = Some(format!("Shell selesai (kode {exit_status})"));
+                            exit = Some(format!("Shell exited (code {exit_status})"));
                         }
                         Some(ChannelMsg::Close) | None => break,
                         Some(_) => {}
                     }
                 }
-                let msg = exit.or_else(|| Some("Koneksi shell terputus".into()));
+                let msg = exit.or_else(|| Some("Shell connection lost".into()));
                 t.mark_closed(msg.clone());
                 listener.on_exit(msg);
             });

@@ -18,10 +18,10 @@ class ModelTest {
 
     @Test fun validation() {
         assertNull(base.validate())
-        assertEquals("Pilih kunci SSH", base.copy(keyId = null).validate())
-        assertEquals("Host tidak valid", base.copy(host = "server example").validate())
-        assertEquals("Port harus 1–65535", base.copy(port = 0).validate())
-        assertEquals("Jump host belum lengkap", base.copy(jump = Hop("", 22, "user")).validate())
+        assertEquals("Choose an SSH key", base.copy(keyId = null).validate())
+        assertEquals("Invalid host", base.copy(host = "server example").validate())
+        assertEquals("Port must be 1–65535", base.copy(port = 0).validate())
+        assertEquals("Jump host is incomplete", base.copy(jump = Hop("", 22, "user")).validate())
         assertNull(base.copy(jump = Hop("bastion.example.com", 2222, "user")).validate())
     }
 
@@ -36,10 +36,10 @@ class ModelTest {
         assertTrue(store.load().isEmpty())
         val p = base.copy(jump = Hop("bastion", 22, "user", keyId = "k2"), pythonCmd = "module load python/3.11 && python")
         store.upsert(p)
-        store.upsert(p.copy(name = "Server baru"))
+        store.upsert(p.copy(name = "New server"))
         val loaded = store.load()
         assertEquals(1, loaded.size)
-        assertEquals("Server baru", loaded[0].name)
+        assertEquals("New server", loaded[0].name)
         assertEquals(p.jump, loaded[0].jump)
         assertEquals(p.pythonCmd, loaded[0].pythonCmd)
         assertTrue(store.remove(p.id).isEmpty())

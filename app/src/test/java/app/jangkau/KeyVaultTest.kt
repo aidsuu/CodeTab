@@ -19,17 +19,17 @@ class KeyVaultTest {
 
     @Test fun generatedKeyIsEncryptedAtRest() {
         val v = vault()
-        val k = v.generateEd25519("tablet kantor")
+        val k = v.generateEd25519("office tablet")
         assertEquals("ed25519", k.format)
         assertTrue(k.publicLine!!.startsWith("ssh-ed25519 AAAA"))
-        assertTrue(k.publicLine!!.endsWith("tablet-kantor@jangkau"))
+        assertTrue(k.publicLine!!.endsWith("office-tablet@codetab"))
         assertTrue(k.fingerprint!!.startsWith("SHA256:"))
         assertFalse(k.hasPassphrase)
 
         val pem = v.privateKeyText(k.id)
         assertTrue(pem.startsWith("-----BEGIN OPENSSH PRIVATE KEY-----"))
         tmp.root.walk().filter { it.isFile }.forEach { f ->
-            assertFalse("${f.name} bocor", f.readBytes().toString(Charsets.ISO_8859_1).contains("PRIVATE KEY"))
+            assertFalse("${f.name} leaks key material", f.readBytes().toString(Charsets.ISO_8859_1).contains("PRIVATE KEY"))
         }
         assertEquals(listOf(k), vault().list())
     }
@@ -37,7 +37,7 @@ class KeyVaultTest {
     @Test fun importKeepsMetadataAndRejectsGarbage() {
         val v = vault()
         val src = v.generateEd25519("src")
-        val imported = v.import("dari laptop", v.privateKeyText(src.id))
+        val imported = v.import("from laptop", v.privateKeyText(src.id))
         assertEquals("OpenSSH", imported.format)
         assertEquals(src.fingerprint, imported.fingerprint)
         assertNotNull(imported.publicLine)

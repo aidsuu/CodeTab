@@ -18,8 +18,8 @@ object Languages {
             "c", "h" -> Lang("source.c", "C")
             "md", "markdown" -> Lang("text.html.markdown", "Markdown")
             "diff", "patch" -> Lang("source.diff", "Diff")
-            "txt", "log", "out", "err" -> Lang(null, "Teks")
-            else -> Lang(null, "Teks")
+            "txt", "log", "out", "err" -> Lang(null, "Plain Text")
+            else -> Lang(null, "Plain Text")
         }
     }
 

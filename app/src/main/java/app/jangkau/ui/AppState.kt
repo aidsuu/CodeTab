@@ -96,7 +96,7 @@ class AppState(
 
     private fun start(p: HostProfile, existing: WorkspaceState? = null) {
         if (progress != null) return
-        progress = "Menyiapkan koneksi…"
+        progress = "Preparing connection…"
         val listener = object : ConnectListener {
             override fun progress(step: String) { scope.launch(Dispatchers.Main) { if (progress != null) progress = step } }
 
@@ -127,7 +127,7 @@ class AppState(
 
     private fun buildConfig(p: HostProfile): ConnectConfig {
         fun hop(host: String, port: Int, user: String, keyId: String?): Hop {
-            val key = vault.find(keyId) ?: throw IllegalStateException("Kunci SSH untuk $user@$host tidak ditemukan")
+            val key = vault.find(keyId) ?: throw IllegalStateException("SSH key for $user@$host not found")
             return Hop(host.trim(), port.toUShort(), user.trim(), vault.privateKeyText(key.id), passphrases[key.id])
         }
         return ConnectConfig(

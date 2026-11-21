@@ -82,7 +82,7 @@ object Ide {
 enum class MonoFont(val label: String, val regular: Int?, val bold: Int?) {
     Cascadia("Cascadia Code", R.font.cascadia_code, R.font.cascadia_code_bold),
     JetBrains("JetBrains Mono", R.font.jetbrains_mono, R.font.jetbrains_mono_bold),
-    System("Droid Sans Mono (sistem)", null, null);
+    System("Droid Sans Mono (system)", null, null);
 
     fun typeface(ctx: Context, bold: Boolean = false): Typeface {
         val id = if (bold) this.bold else regular

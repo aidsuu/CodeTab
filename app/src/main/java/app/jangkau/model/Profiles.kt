@@ -34,13 +34,13 @@ data class HostProfile(
         }
 
     fun validate(): String? = when {
-        name.isBlank() -> "Nama profil kosong"
-        host.isBlank() || host.any { it.isWhitespace() } -> "Host tidak valid"
-        user.isBlank() || user.any { it.isWhitespace() } -> "User tidak valid"
-        port !in 1..65535 -> "Port harus 1–65535"
-        keyId == null -> "Pilih kunci SSH"
-        jump != null && (jump.host.isBlank() || jump.user.isBlank()) -> "Jump host belum lengkap"
-        jump != null && jump.port !in 1..65535 -> "Port jump host harus 1–65535"
+        name.isBlank() -> "Profile name is empty"
+        host.isBlank() || host.any { it.isWhitespace() } -> "Invalid host"
+        user.isBlank() || user.any { it.isWhitespace() } -> "Invalid user"
+        port !in 1..65535 -> "Port must be 1–65535"
+        keyId == null -> "Choose an SSH key"
+        jump != null && (jump.host.isBlank() || jump.user.isBlank()) -> "Jump host is incomplete"
+        jump != null && jump.port !in 1..65535 -> "Jump host port must be 1–65535"
         else -> null
     }
 }
