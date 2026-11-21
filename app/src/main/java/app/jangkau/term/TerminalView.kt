@@ -20,13 +20,15 @@ import app.jangkau.core.TermKey
 import app.jangkau.core.TermRun
 import app.jangkau.core.TermSnapshot
 import app.jangkau.core.encodeKey
-import app.jangkau.core.encodeText
+import app.jangkau.core.encodeWheel
 import kotlin.math.abs
 import kotlin.math.max
 
 interface TerminalSource {
     fun snapshot(scrollOffset: Int): TermSnapshot
     fun send(bytes: ByteArray)
+    fun typeText(text: String, mods: Mods)
+    fun typeKey(key: TermKey, mods: Mods)
     fun resize(cols: Int, rows: Int)
     fun consumeMods(): Mods
 }
@@ -102,6 +104,20 @@ class TerminalView(context: Context) : View(context) {
                 drawRun(canvas, run, next, x0, top)
             }
         }
+        if (snap.predictions.isNotEmpty()) {
+            paint.color = Palette.foreground
+            paint.alpha = 190
+            paint.isUnderlineText = true
+            for (p in snap.predictions) {
+                val x = x0 + p.col.toInt() * cellW
+                val top = y0 + p.row.toInt() * cellH
+                bgPaint.color = Palette.background
+                canvas.drawRect(x, top, x + p.text.length * cellW, top + cellH, bgPaint)
+                canvas.drawText(p.text, x, top + ascent, paint)
+            }
+            paint.alpha = 255
+            paint.isUnderlineText = false
+        }
         if (snap.cursorVisible) {
             val cx = x0 + snap.cursorCol.toInt() * cellW
             val cy = y0 + snap.cursorRow.toInt() * cellH
@@ -119,7 +135,7 @@ class TerminalView(context: Context) : View(context) {
         }
         if (snap.scrollOffset > 0u) {
             paint.color = Palette.hint
-            val label = "↑ riwayat ${snap.scrollOffset}/${snap.scrollbackAvailable}"
+            val label = "↑ history ${snap.scrollOffset}/${snap.scrollbackAvailable}"
             canvas.drawText(label, width - paint.measureText(label) - cellW, y0 + ascent, paint)
         }
     }
@@ -162,7 +178,11 @@ class TerminalView(context: Context) : View(context) {
             if (lines == 0) return true
             scrollAccum -= lines * cellH
             val snap = lastSnapshot
-            if (snap?.altScreen == true) {
+            if (snap?.mouseReporting == true) {
+                val row = ((e2.y - paddingTop) / cellH).toInt().coerceIn(0, snap.rows.toInt() - 1)
+                val col = ((e2.x - paddingLeft) / cellW).toInt().coerceIn(0, snap.cols.toInt() - 1)
+                repeat(abs(lines)) { source?.send(encodeWheel(lines < 0, row.toUShort(), col.toUShort(), snap.mouseSgr)) }
+            } else if (snap?.altScreen == true) {
                 val key = if (lines > 0) TermKey.Down else TermKey.Up
                 repeat(abs(lines)) { source?.send(encodeKey(key, NO_MODS, snap.appCursor)) }
             } else {
@@ -184,15 +204,16 @@ class TerminalView(context: Context) : View(context) {
     private fun sendText(text: String) {
         val src = source ?: return
         scrollOffset = 0
-        src.send(encodeText(text, src.consumeMods()))
+        src.typeText(text, src.consumeMods())
+        refresh()
     }
 
     fun sendKey(key: TermKey, mods: Mods = NO_MODS) {
         val src = source ?: return
         scrollOffset = 0
         val sticky = src.consumeMods()
-        val m = Mods(mods.ctrl || sticky.ctrl, mods.alt || sticky.alt, mods.shift || sticky.shift)
-        src.send(encodeKey(key, m, lastSnapshot?.appCursor ?: false))
+        src.typeKey(key, Mods(mods.ctrl || sticky.ctrl, mods.alt || sticky.alt, mods.shift || sticky.shift))
+        refresh()
     }
 
     override fun onCheckIsTextEditor() = true
@@ -262,7 +283,8 @@ class TerminalView(context: Context) : View(context) {
             val src = source ?: return true
             val sticky = src.consumeMods()
             scrollOffset = 0
-            src.send(encodeText(String(Character.toChars(uc)), Mods(mods.ctrl || sticky.ctrl, mods.alt || sticky.alt, false)))
+            src.typeText(String(Character.toChars(uc)), Mods(mods.ctrl || sticky.ctrl, mods.alt || sticky.alt, false))
+            refresh()
             return true
         }
         return super.onKeyDown(keyCode, event)

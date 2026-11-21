@@ -21,10 +21,12 @@ CodeTab turns a tablet into a window onto your remote machine. It gives you a fi
 
 - **SSH only.** Connect directly or through a single jump host. There is no code-server, agent, or daemon to install, and files are read and written over SFTP.
 - **Key-based authentication.** Generate an Ed25519 key on the tablet or import an existing OpenSSH, PEM, or PuTTY key. Private keys are encrypted with a key held in the Android Keystore, and host keys are trusted on first use with a warning if they ever change.
-- **Explorer.** Browse a folder tree that loads on demand, search files, and see Git status at a glance. Create, rename, delete, and copy paths from a long press. Dotfiles are hidden by default and can be shown with one tap.
+- **Built for unreliable networks.** When the server has tmux, every terminal runs inside a tmux session, so shells and running programs keep going if the connection drops. CodeTab notices a lost connection within seconds, reconnects on its own with backoff or as soon as the device switches networks, and reattaches your terminals where you left them.
+- **Responsive typing on slow links.** A latency indicator in the status bar shows the round trip to the server. When it is high, typed characters appear immediately and are confirmed once the server echoes them, similar to Mosh. Nothing is shown until the shell has echoed at least once, so password prompts stay hidden.
+- **Explorer.** Browse a folder tree that loads on demand, search files, and see Git status at a glance. Each file shows a colored badge for its language. Create, rename, delete, and copy paths from a long press. Dotfiles are hidden by default and can be shown with one tap.
 - **Editor.** Syntax highlighting for the [languages listed below](#supported-languages), line numbers, undo and redo, and adjustable font size. Before saving, CodeTab checks whether the file was changed on the server since you opened it, so a running job's output is never silently overwritten.
 - **Image and PDF viewer.** Open plots, figures, and papers straight from the server with pinch to zoom.
-- **Terminal.** A full `xterm-256color` shell with multiple tabs, 5,000 lines of scrollback, truecolor, support for full-screen programs such as vim, less, and top, an extra key row for Esc, Tab, Ctrl, Alt, and arrows, and safe multi-line paste.
+- **Terminal.** A full `xterm-256color` shell with multiple tabs, 5,000 lines of scrollback, truecolor, support for full-screen programs such as vim, less, top, and tmux with mouse scrolling, an extra key row for Esc, Tab, Ctrl, Alt, and arrows, and safe multi-line paste.
 - **Run.** Run the current Python or shell script in the terminal with one tap. On machines with SLURM, job scripts can be submitted with `sbatch`.
 - **Git.** See the branch with ahead and behind counts, stage and unstage changes, discard edits, commit, pull, push, fetch, and view per-file diffs. Commands are compatible with Git 1.8 and newer.
 - **Reconnect.** If the connection drops, open tabs and unsaved edits are kept, and a single tap reconnects.
@@ -36,20 +38,19 @@ CodeTab turns a tablet into a window onto your remote machine. It gives you a fi
 
 ## Supported languages
 
-The editor highlights syntax using TextMate grammars from Visual Studio Code.
+The editor highlights about 60 languages using TextMate grammars from Visual Studio Code, plus community grammars for Kotlin and TOML.
 
-| Language | File types |
+| Area | Languages |
 |---|---|
-| Python | `.py`, `.pyw`, `.pyi` |
-| Shell | `.sh`, `.bash`, `.zsh`, `.bashrc`, `.bash_profile`, `.profile`, `.zshrc` |
-| Job scripts | `.slurm`, `.sbatch`, `.pbs`, `.job` (highlighted as Shell) |
-| JSON | `.json`, `.ipynb` |
-| YAML | `.yml`, `.yaml` |
-| C | `.c`, `.h` |
-| Markdown | `.md`, `.markdown`, including fenced code blocks in the languages above |
-| Diff | `.diff`, `.patch` |
+| Web | HTML, CSS, SCSS, Less, JavaScript, JSX, TypeScript, TSX, PHP, XML, XSL, Handlebars, Pug, CoffeeScript |
+| Systems and apps | C, C++, CUDA C++, C#, Java, Kotlin, Groovy and Gradle, Go, Rust, Swift, Objective-C, Objective-C++, Dart, F#, Visual Basic |
+| Scripting and data science | Python, R, Julia, Ruby, Perl, Lua, PowerShell, Batch, Shell (including `.slurm`, `.sbatch`, and `.pbs` job scripts), SQL |
+| Data and configuration | JSON, JSON with Comments, JSON Lines, YAML, TOML, INI and `.properties`, `.env`, Dockerfile, Makefile, `.gitignore` |
+| Documents | Markdown (with highlighted code blocks), LaTeX, TeX, BibTeX, reStructuredText, Diff, Log, Git commit and rebase messages |
 
-Any other text file opens as plain text and can still be edited. Autocomplete currently suggests words from the open file. Language-aware features such as go to definition and library completions are not available yet.
+Files are matched by extension and by well-known names such as `Dockerfile`, `Makefile`, `Gemfile`, `Jenkinsfile`, and `tsconfig.json`. Any other text file opens as plain text and can still be edited.
+
+Autocomplete currently suggests words from the open file. Language-aware features such as go to definition and library completions are not available yet.
 
 ## Installation
 
@@ -115,6 +116,8 @@ Then build the APK.
 ./gradlew assembleRelease
 ```
 
+The bundled grammars can be refreshed from their pinned upstream versions with `scripts/update-grammars.py`.
+
 The APK is written to `app/build/outputs/apk/release/`. Release builds are signed with the debug key so they can be installed directly. Sign with your own key before distributing a build.
 
 ### Running the tests
@@ -137,7 +140,7 @@ Run the Android unit and screenshot tests.
 ./gradlew testDebugUnitTest
 ```
 
-The end-to-end script starts an unprivileged `sshd` on a random local port with temporary keys. It covers the jump host, SFTP, remote commands, terminal resizing, host key checks, and error handling, and it never touches your `~/.ssh`. The Android tests load the host build of the Rust core through JNA and include Roborazzi screenshot tests on a 1280×800 dp landscape tablet. To update the screenshots, record them again.
+The end-to-end script starts an unprivileged `sshd` on a random local port with temporary keys. It covers the jump host, SFTP, remote commands, terminal resizing, a tmux session that survives a disconnect, host key checks, and error handling, and it never touches your `~/.ssh`. The Android tests load the host build of the Rust core through JNA and include Roborazzi screenshot tests on a 1280×800 dp landscape tablet. To update the screenshots, record them again.
 
 ```bash
 ./gradlew testDebugUnitTest --tests '*ScreenshotTest*' -Proborazzi.test.record=true
@@ -147,6 +150,7 @@ The end-to-end script starts an unprivileged `sshd` on a random local port with 
 
 - Only arm64 builds are provided, so the app does not run on x86 emulators.
 - Only public key authentication is supported. Passwords and keyboard-interactive two-factor authentication are not.
+- Keeping terminals alive across disconnects requires tmux on the server. Without it, terminals fall back to a plain shell that ends when the connection drops. This can be turned off in Settings.
 - `git push` and `git pull` rely on credentials already configured on the server, because remote commands run without an interactive prompt.
 - The editor opens files up to 4 MB. Larger files and binary files can be inspected in the terminal.
 
@@ -158,4 +162,4 @@ Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
 
 CodeTab is licensed under the [Apache License 2.0](LICENSE).
 
-The bundled fonts Cascadia Code, JetBrains Mono, and Inter are licensed under the SIL Open Font License 1.1, and their license texts are in [`app/src/main/assets/licenses/`](app/src/main/assets/licenses/). The TextMate grammars in `app/src/main/assets/textmate/` come from Visual Studio Code and are licensed under the MIT License.
+The bundled fonts Cascadia Code, JetBrains Mono, and Inter are licensed under the SIL Open Font License 1.1, and their license texts are in [`app/src/main/assets/licenses/`](app/src/main/assets/licenses/). The TextMate grammars in `app/src/main/assets/textmate/` come from Visual Studio Code, vscode-kotlin, and Taplo, all under the MIT License. Their license texts are also in `app/src/main/assets/licenses/`.

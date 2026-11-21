@@ -180,4 +180,66 @@ class WorkspaceStateTest {
         assertFalse(ws.shortcut(ctrl = false, shift = false, key = 's'))
         assertFalse(ws.shortcut(ctrl = true, shift = false, key = 'q'))
     }
+
+    private fun withTmux(r: FakeRemote, sessions: String = "codetab-2\ncodetab-5\n") {
+        val base = r.execHandler
+        r.execHandler = { cmd -> if ("list-sessions" in cmd) ExecResult(0, "motd\n__codetab_tmux__\nwork\n$sessions", "") else base(cmd) }
+    }
+
+    @Test fun tmuxSessionsAreRestoredAndNewShellsUseTmux() = scope.runTest {
+        withTmux(remote)
+        ws.ensureTerminal(); advanceUntilIdle()
+        assertEquals(listOf("bash 2", "bash 5"), ws.terminals.map { it.title })
+        assertEquals(listOf("codetab-2", "codetab-5"), ws.terminals.map { it.tmuxSession })
+        assertTrue(remote.terminalCommands.all { it!!.contains("new-session -A -s codetab-") })
+        assertTrue(ws.tmuxAvailable)
+
+        ws.newTerminal(); advanceUntilIdle()
+        assertEquals("codetab-6", ws.terminals.last().tmuxSession)
+        ws.closeTerminal(ws.terminals.last()); advanceUntilIdle()
+        assertTrue(remote.commands.any { "kill-session -t =codetab-6" in it })
+        assertEquals(2, ws.terminals.size)
+    }
+
+    @Test fun plainShellWhenTmuxIsMissingOrDisabled() = scope.runTest {
+        ws.ensureTerminal(); advanceUntilIdle()
+        assertEquals(listOf<String?>(null), remote.terminalCommands)
+        assertNull(ws.terminals.single().tmuxSession)
+        assertFalse(ws.tmuxAvailable)
+    }
+
+    @Test fun reconnectReattachesTmuxShells() = scope.runTest {
+        withTmux(remote, sessions = "")
+        ws.ensureTerminal(); advanceUntilIdle()
+        val tab = ws.terminals.single()
+        val plain = ws.attachTerminal(app.jangkau.core.Terminal(80u, 24u), "plain")
+        var lostCalls = 0
+        ws.onConnectionLost = { lostCalls++ }
+        ws.markLost(); ws.markLost()
+        assertEquals(1, lostCalls)
+        tab.onExit("Shell connection lost")
+
+        val next = FakeRemote()
+        withTmux(next, sessions = "codetab-1\n")
+        ws.replaceRemote(next); advanceUntilIdle()
+        assertFalse(ws.connectionLost)
+        assertEquals(listOf("codetab-1"), next.terminalCommands.map { it!!.substringAfter("-A -s ").substringBefore(" ") })
+        assertNull(tab.exited)
+        assertEquals("Previous connection lost", plain.exited)
+    }
+
+    @Test fun pingTracksLatencyAndDetectsLoss() = scope.runTest {
+        var lost = 0
+        ws.onConnectionLost = { lost++ }
+        remote.pingMs = 120
+        ws.pingOnce()
+        assertEquals(120, ws.latencyMs)
+        remote.pingMs = null
+        ws.pingOnce()
+        assertFalse(ws.connectionLost)
+        ws.pingOnce()
+        assertTrue(ws.connectionLost)
+        assertNull(ws.latencyMs)
+        assertEquals(1, lost)
+    }
 }

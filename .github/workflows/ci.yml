@@ -35,7 +35,7 @@ jobs:
       - name: End-to-end tests
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq openssh-server
+          sudo apt-get install -yq openssh-server tmux
           scripts/e2e-sshd.sh
 
   android:

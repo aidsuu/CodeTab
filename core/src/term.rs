@@ -1,8 +1,11 @@
+use crate::keyenc::{encode_key, encode_text, Mods, TermKey};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
 
 const SCROLLBACK: usize = 5000;
+const PREDICT_MIN_RTT_MS: u32 = 40;
 pub const COLOR_DEFAULT: i32 = -1;
 pub const COLOR_RGB_FLAG: i32 = 0x100_0000;
 
@@ -48,6 +51,14 @@ pub struct TermRow {
     pub runs: Vec<TermRun>,
 }
 
+/// Locally echoed text that the server has not confirmed yet.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TermPrediction {
+    pub row: u16,
+    pub col: u16,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct TermSnapshot {
     pub cols: u16,
@@ -62,6 +73,130 @@ pub struct TermSnapshot {
     pub scrollback_available: u32,
     pub scroll_offset: u32,
     pub title: String,
+    pub predictions: Vec<TermPrediction>,
+    pub mouse_reporting: bool,
+    pub mouse_sgr: bool,
+}
+
+struct Pred {
+    row: u16,
+    col: u16,
+    ch: char,
+    epoch: u64,
+    at: Instant,
+}
+
+/// Mosh-style local echo. Typed characters are drawn immediately once the server has echoed
+/// at least one character in the current epoch, so hidden input such as passwords never shows.
+struct Predictor {
+    enabled: bool,
+    rtt_ms: u32,
+    epoch: u64,
+    confirmed_epoch: u64,
+    preds: Vec<Pred>,
+}
+
+impl Default for Predictor {
+    fn default() -> Self {
+        Predictor {
+            enabled: true,
+            rtt_ms: 0,
+            epoch: 1,
+            confirmed_epoch: 0,
+            preds: Vec::new(),
+        }
+    }
+}
+
+fn cell_text(screen: &vt100::Screen, row: u16, col: u16) -> String {
+    screen
+        .cell(row, col)
+        .map(|c| c.contents().to_string())
+        .unwrap_or_default()
+}
+
+impl Predictor {
+    fn active(&self) -> bool {
+        self.enabled && self.rtt_ms >= PREDICT_MIN_RTT_MS
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_millis((self.rtt_ms as u64 * 3).max(1500))
+    }
+
+    fn reset(&mut self) {
+        self.preds.clear();
+        self.epoch += 1;
+    }
+
+    fn add(&mut self, screen: &vt100::Screen, ch: char) {
+        if !self.active() || screen.alternate_screen() || screen.hide_cursor() {
+            return;
+        }
+        let (rows, cols) = screen.size();
+        let (row, col) = match self.preds.last() {
+            Some(p) => (p.row, p.col + 1),
+            None => screen.cursor_position(),
+        };
+        if row >= rows || col + 1 >= cols || !cell_text(screen, row, col).trim().is_empty() {
+            self.reset();
+            return;
+        }
+        self.preds.push(Pred {
+            row,
+            col,
+            ch,
+            epoch: self.epoch,
+            at: Instant::now(),
+        });
+    }
+
+    fn validate(&mut self, screen: &vt100::Screen) {
+        let (cr, cc) = screen.cursor_position();
+        let timeout = self.timeout();
+        while let Some(p) = self.preds.first() {
+            let text = cell_text(screen, p.row, p.col);
+            let moved_past = cr != p.row || cc > p.col;
+            let confirmed =
+                text == p.ch.to_string() || (p.ch == ' ' && text.trim().is_empty() && moved_past);
+            if confirmed {
+                self.confirmed_epoch = self.confirmed_epoch.max(p.epoch);
+                self.preds.remove(0);
+                continue;
+            }
+            if !text.trim().is_empty() || moved_past || p.at.elapsed() > timeout {
+                self.reset();
+            }
+            break;
+        }
+    }
+
+    fn visible(&self) -> Vec<TermPrediction> {
+        let mut out: Vec<TermPrediction> = Vec::new();
+        if !self.active() {
+            return out;
+        }
+        for p in self
+            .preds
+            .iter()
+            .filter(|p| p.epoch <= self.confirmed_epoch)
+        {
+            match out.last_mut() {
+                Some(last)
+                    if last.row == p.row
+                        && last.col + last.text.chars().count() as u16 == p.col =>
+                {
+                    last.text.push(p.ch)
+                }
+                _ => out.push(TermPrediction {
+                    row: p.row,
+                    col: p.col,
+                    text: p.ch.to_string(),
+                }),
+            }
+        }
+        out
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -70,6 +205,7 @@ pub struct Terminal {
     tx: Option<UnboundedSender<Outgoing>>,
     open: AtomicBool,
     exit_message: Mutex<Option<String>>,
+    predict: Mutex<Predictor>,
 }
 
 fn color(c: vt100::Color) -> i32 {
@@ -99,6 +235,7 @@ impl Terminal {
             tx,
             open: AtomicBool::new(open),
             exit_message: Mutex::new(None),
+            predict: Mutex::new(Predictor::default()),
         }
     }
 
@@ -117,6 +254,7 @@ impl Terminal {
             if contains(data, b"\x1b[c") || contains(data, b"\x1b[0c") {
                 reply.extend_from_slice(b"\x1b[?1;2c");
             }
+            self.predict.lock().unwrap().validate(p.screen());
             reply
         };
         if !reply.is_empty() {
@@ -152,6 +290,52 @@ impl Terminal {
         }
     }
 
+    /// Sends typed text and predicts its echo when the connection is slow.
+    pub fn type_text(&self, text: String, mods: Mods) -> bool {
+        {
+            let p = self.parser.lock().unwrap();
+            let mut pr = self.predict.lock().unwrap();
+            for ch in text.chars() {
+                if !mods.ctrl && !mods.alt && (' '..='~').contains(&ch) {
+                    pr.add(p.screen(), ch);
+                } else {
+                    pr.reset();
+                }
+            }
+        }
+        self.send(encode_text(text, mods))
+    }
+
+    pub fn type_key(&self, key: TermKey, mods: Mods) -> bool {
+        let app_cursor = {
+            let p = self.parser.lock().unwrap();
+            let mut pr = self.predict.lock().unwrap();
+            if key == TermKey::Backspace && !mods.ctrl && !mods.alt && !pr.preds.is_empty() {
+                pr.preds.pop();
+            } else {
+                pr.reset();
+            }
+            p.screen().application_cursor()
+        };
+        self.send(encode_key(key, mods, app_cursor))
+    }
+
+    pub fn set_latency(&self, rtt_ms: u32) {
+        self.predict.lock().unwrap().rtt_ms = rtt_ms;
+    }
+
+    pub fn set_prediction(&self, enabled: bool) {
+        let mut pr = self.predict.lock().unwrap();
+        pr.enabled = enabled;
+        if !enabled {
+            pr.reset();
+        }
+    }
+
+    pub fn clear_predictions(&self) {
+        self.predict.lock().unwrap().reset();
+    }
+
     pub fn resize(&self, cols: u16, rows: u16) {
         let (cols, rows) = (cols.max(2), rows.max(2));
         {
@@ -160,6 +344,7 @@ impl Terminal {
                 return;
             }
             p.screen_mut().set_size(rows, cols);
+            self.predict.lock().unwrap().reset();
         }
         if let Some(tx) = &self.tx {
             let _ = tx.send(Outgoing::Resize(cols, rows));
@@ -248,7 +433,18 @@ impl Terminal {
             }
             lines.push(TermRow { runs });
         }
-        let (cr, cc) = screen.cursor_position();
+        let (mut cr, mut cc) = screen.cursor_position();
+        let predictions = if offset == 0 && !screen.alternate_screen() {
+            let mut pr = self.predict.lock().unwrap();
+            pr.validate(screen);
+            pr.visible()
+        } else {
+            Vec::new()
+        };
+        if let Some(last) = predictions.last() {
+            cr = last.row;
+            cc = last.col + last.text.chars().count() as u16;
+        }
         let snap = TermSnapshot {
             cols,
             rows,
@@ -262,6 +458,9 @@ impl Terminal {
             scrollback_available: available,
             scroll_offset: offset,
             title,
+            predictions,
+            mouse_reporting: screen.mouse_protocol_mode() != vt100::MouseProtocolMode::None,
+            mouse_sgr: screen.mouse_protocol_encoding() == vt100::MouseProtocolEncoding::Sgr,
         };
         p.screen_mut().set_scrollback(0);
         snap
@@ -389,6 +588,84 @@ mod tests {
         t.terminate();
         assert!(!t.is_open());
         assert!(!t.send(b"x".to_vec()));
+    }
+
+    const NONE: Mods = Mods {
+        ctrl: false,
+        alt: false,
+        shift: false,
+    };
+
+    fn predicted(t: &Terminal) -> Vec<(u16, u16, String)> {
+        t.snapshot(0)
+            .predictions
+            .into_iter()
+            .map(|p| (p.row, p.col, p.text))
+            .collect()
+    }
+
+    #[test]
+    fn prediction_waits_for_a_confirmed_echo() {
+        let t = Terminal::new(40, 5);
+        t.feed(b"$ ".to_vec());
+        t.set_latency(150);
+        t.type_text("ls".into(), NONE);
+        assert!(predicted(&t).is_empty());
+        t.feed(b"l".to_vec());
+        assert_eq!(predicted(&t), vec![(0, 3, "s".to_string())]);
+        assert_eq!(t.snapshot(0).cursor_col, 4);
+        t.type_text(" -la".into(), NONE);
+        assert_eq!(predicted(&t), vec![(0, 3, "s -la".to_string())]);
+        t.feed(b"s -la".to_vec());
+        assert!(predicted(&t).is_empty());
+        assert_eq!(t.snapshot(0).cursor_col, 8);
+    }
+
+    #[test]
+    fn hidden_input_after_enter_is_never_shown() {
+        let t = Terminal::new(40, 5);
+        t.set_latency(150);
+        t.feed(b"$ ".to_vec());
+        t.type_text("s".into(), NONE);
+        t.feed(b"s".to_vec());
+        t.type_key(TermKey::Enter, NONE);
+        t.feed(b"\r\nPassword: ".to_vec());
+        t.type_text("hunter2".into(), NONE);
+        assert!(predicted(&t).is_empty());
+    }
+
+    #[test]
+    fn mismatch_backspace_and_low_latency() {
+        let t = Terminal::new(40, 5);
+        t.set_latency(150);
+        t.feed(b"$ ".to_vec());
+        t.type_text("a".into(), NONE);
+        t.feed(b"a".to_vec());
+        t.type_text("bc".into(), NONE);
+        t.type_key(TermKey::Backspace, NONE);
+        assert_eq!(predicted(&t), vec![(0, 3, "b".to_string())]);
+        t.feed(b"X".to_vec());
+        assert!(predicted(&t).is_empty());
+        t.type_text("d".into(), NONE);
+        assert!(predicted(&t).is_empty());
+
+        let fast = Terminal::new(40, 5);
+        fast.set_latency(5);
+        fast.type_text("a".into(), NONE);
+        fast.feed(b"a".to_vec());
+        fast.type_text("b".into(), NONE);
+        assert!(predicted(&fast).is_empty());
+    }
+
+    #[test]
+    fn no_prediction_in_full_screen_apps_and_mouse_modes() {
+        let t = Terminal::new(40, 5);
+        t.set_latency(150);
+        t.feed(b"\x1b[?1049h\x1b[?1000h\x1b[?1006h".to_vec());
+        t.type_text("j".into(), NONE);
+        let s = t.snapshot(0);
+        assert!(s.predictions.is_empty());
+        assert!(s.mouse_reporting && s.mouse_sgr);
     }
 
     #[test]

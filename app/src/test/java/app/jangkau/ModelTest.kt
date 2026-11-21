@@ -57,7 +57,7 @@ class ModelTest {
         assertEquals("source.shell", Languages.forName(".bashrc").scope)
         assertEquals("source.yaml", Languages.forName("env.yml").scope)
         assertEquals("source.diff", Languages.forName("a.py.diff").scope)
-        assertNull(Languages.forName("Makefile").scope)
+        assertEquals("source.makefile", Languages.forName("Makefile").scope)
         assertEquals(Languages.RunKind.Python, Languages.runKind("a.py"))
         assertEquals(Languages.RunKind.Slurm, Languages.runKind("train.sbatch"))
         assertNull(Languages.runKind("README.md"))

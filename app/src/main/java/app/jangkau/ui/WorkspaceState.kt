@@ -12,6 +12,7 @@ import app.jangkau.core.GitOp
 import app.jangkau.core.GitStatus
 import app.jangkau.core.Mods
 import app.jangkau.core.RemoteEntry
+import app.jangkau.core.TermKey
 import app.jangkau.core.TermSnapshot
 import app.jangkau.core.Terminal
 import app.jangkau.core.TerminalListener
@@ -24,6 +25,10 @@ import app.jangkau.core.pathName
 import app.jangkau.core.pathParent
 import app.jangkau.core.pathRelativeTo
 import app.jangkau.core.shQuote
+import app.jangkau.core.parseTmuxProbe
+import app.jangkau.core.tmuxAttachCommand
+import app.jangkau.core.tmuxKillCommand
+import app.jangkau.core.tmuxProbeCommand
 import app.jangkau.editor.Languages
 import app.jangkau.model.HostProfile
 import app.jangkau.remote.Remote
@@ -34,6 +39,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 enum class SidePanel { Explorer, Git }
@@ -62,15 +69,44 @@ class EditorTab(
     fun text(): String = currentText?.invoke() ?: initialText
 }
 
-class TermTab(val id: Int, val terminal: Terminal) : TerminalSource, TerminalListener {
+class TermTab(val id: Int, terminal: Terminal, val tmuxSession: String? = null) : TerminalSource, TerminalListener {
+    var terminal by mutableStateOf(terminal)
+        private set
     var title by mutableStateOf("bash")
     var stickyCtrl by mutableStateOf(false)
     var stickyAlt by mutableStateOf(false)
     var exited by mutableStateOf<String?>(null)
+    var endedCleanly = false
+        private set
     @Volatile var onUpdate: (() -> Unit)? = null
+    @Volatile private var generation = 0
+
+    fun listener(): TerminalListener {
+        val gen = generation
+        return object : TerminalListener {
+            override fun onUpdate() { if (gen == generation) this@TermTab.onUpdate() }
+            override fun onExit(message: String?) { if (gen == generation) this@TermTab.onExit(message) }
+        }
+    }
+
+    val firstGeneration get() = generation == 0
+
+    fun nextListener(): TerminalListener {
+        generation++
+        return listener()
+    }
+
+    fun reattach(t: Terminal) {
+        terminal = t
+        exited = null
+        endedCleanly = false
+        onUpdate?.invoke()
+    }
 
     override fun snapshot(scrollOffset: Int): TermSnapshot = terminal.snapshot(scrollOffset.toUInt())
     override fun send(bytes: ByteArray) { terminal.send(bytes) }
+    override fun typeText(text: String, mods: Mods) { terminal.typeText(text, mods) }
+    override fun typeKey(key: TermKey, mods: Mods) { terminal.typeKey(key, mods) }
     override fun resize(cols: Int, rows: Int) = terminal.resize(cols.toUShort(), rows.toUShort())
     override fun consumeMods(): Mods {
         val m = Mods(stickyCtrl, stickyAlt, false)
@@ -79,11 +115,15 @@ class TermTab(val id: Int, val terminal: Terminal) : TerminalSource, TerminalLis
         return m
     }
 
-    fun type(text: String) { terminal.send(text.toByteArray()) }
-    fun paste(text: String) { terminal.send(encodePaste(text, terminal.snapshot(0u).bracketedPaste)) }
+    fun type(text: String) { terminal.clearPredictions(); terminal.send(text.toByteArray()) }
+    fun paste(text: String) { terminal.clearPredictions(); terminal.send(encodePaste(text, terminal.snapshot(0u).bracketedPaste)) }
 
     override fun onUpdate() { onUpdate?.invoke() }
-    override fun onExit(message: String?) { exited = message ?: "Shell exited"; onUpdate?.invoke() }
+    override fun onExit(message: String?) {
+        endedCleanly = message?.startsWith("Shell exited") == true
+        exited = message ?: "Shell exited"
+        onUpdate?.invoke()
+    }
 }
 
 class GitState {
@@ -131,6 +171,15 @@ class WorkspaceState(
     var message by mutableStateOf<String?>(null)
     var saveConflict by mutableStateOf<SaveConflict?>(null)
     var connectionLost by mutableStateOf(false)
+        private set
+    var reconnectStatus by mutableStateOf<String?>(null)
+    var latencyMs by mutableStateOf<Int?>(null)
+    var tmuxAvailable by mutableStateOf(false)
+        private set
+    var onConnectionLost: (() -> Unit)? = null
+    private var pingFailures = 0
+    private var tmuxProbed = false
+    private val probeLock = Mutex()
     var editorTextSp: Float
         get() = prefs.editorTextSp
         set(v) { prefs.editorTextSp = v }
@@ -174,14 +223,63 @@ class WorkspaceState(
         refreshGit()
     }
 
+    fun markLost() {
+        if (connectionLost) return
+        connectionLost = true
+        latencyMs = null
+        onConnectionLost?.invoke()
+    }
+
     fun replaceRemote(newRemote: Remote) {
         val old = remote
         remote = newRemote
         connectionLost = false
-        terminals.forEach { if (it.exited == null) it.exited = "Previous connection lost" }
+        reconnectStatus = null
+        latencyMs = null
+        pingFailures = 0
+        val keep = terminals.filter { it.tmuxSession != null && !it.endedCleanly }
+        terminals.forEach { if (it !in keep && it.exited == null) it.exited = "Previous connection lost" }
         scope.launch(io) { runCatching { old.close() } }
         refreshAll()
+        keep.forEach { tab ->
+            val listener = tab.nextListener()
+            val size = tab.terminal.size()
+            launchIo("Could not reattach ${tab.title}") {
+                val t = newRemote.openTerminal(size[0].toInt(), size[1].toInt(), tmuxAttachCommand(tab.tmuxSession!!), listener)
+                configure(t)
+                withMain { tab.reattach(t) }
+            }
+        }
         message = "Reconnected to ${newRemote.label}"
+    }
+
+    suspend fun pingOnce() {
+        if (connectionLost) return
+        val target = remote
+        val result = withContext(io) {
+            runCatching { target.ping(PING_TIMEOUT_MS) }.onFailure {
+                if (!runCatching { target.isConnected }.getOrDefault(false)) pingFailures = PING_MAX_FAILURES
+            }
+        }
+        if (target !== remote || connectionLost) return
+        result.onSuccess { ms ->
+            pingFailures = 0
+            latencyMs = ms
+            terminals.forEach { it.terminal.setLatency(ms.toUInt()) }
+        }.onFailure {
+            pingFailures++
+            if (pingFailures >= PING_MAX_FAILURES) markLost()
+        }
+    }
+
+    fun setPredictiveEcho(on: Boolean) {
+        prefs.predictiveEcho = on
+        terminals.forEach { it.terminal.setPrediction(on) }
+    }
+
+    private fun configure(t: Terminal) {
+        t.setPrediction(prefs.predictiveEcho)
+        latencyMs?.let { t.setLatency(it.toUInt()) }
     }
 
     fun openFolder(path: String) {
@@ -343,26 +441,58 @@ class WorkspaceState(
     var openingTerminal by mutableStateOf(false)
         private set
 
-    fun newTerminal(cols: Int = 100, rows: Int = 30, then: ((TermTab) -> Unit)? = null) {
+    fun newTerminal(cols: Int = 100, rows: Int = 30, then: ((TermTab) -> Unit)? = null) =
+        openTerminals(fresh = true, cols, rows, then)
+
+    fun ensureTerminal() {
+        if (terminals.isEmpty() && !connectionLost) openTerminals(fresh = false, 100, 30, null)
+    }
+
+    private fun openTerminals(fresh: Boolean, cols: Int, rows: Int, then: ((TermTab) -> Unit)?) {
         if (openingTerminal) return
         openingTerminal = true
-        val id = nextTermId++
-        var tab: TermTab? = null
-        val holder = object : TerminalListener {
-            override fun onUpdate() { tab?.onUpdate() }
-            override fun onExit(message: String?) { tab?.onExit(message) }
-        }
         launchIo("Could not open a terminal") {
-            val t = remote.openTerminal(cols, rows, holder)
-            withMain {
-                val tt = TermTab(id, t).also { it.title = "bash $id" }
-                tab = tt
-                terminals += tt
-                activeTerminal = terminals.size - 1
-                terminalVisible = true
-                then?.invoke(tt)
+            val restore = probeTmux()
+            if (prefs.keepSessions) {
+                for (name in restore) {
+                    val id = name.removePrefix(TMUX_PREFIX).toIntOrNull() ?: continue
+                    if (withMain { terminals.any { it.tmuxSession == name } }) continue
+                    val tab = openTab(id, name, cols, rows)
+                    withMain { nextTermId = maxOf(nextTermId, id + 1); addTerminal(tab) }
+                }
+            }
+            if (fresh || withMain { terminals.isEmpty() }) {
+                val id = withMain { nextTermId++ }
+                val session = if (tmuxAvailable && prefs.keepSessions) "$TMUX_PREFIX$id" else null
+                val tab = openTab(id, session, cols, rows)
+                withMain { addTerminal(tab); then?.invoke(tab) }
             }
         }.invokeOnCompletion { openingTerminal = false }
+    }
+
+    private suspend fun probeTmux(): List<String> = probeLock.withLock {
+        if (tmuxProbed) return emptyList()
+        val info = runCatching { parseTmuxProbe(remote.exec(tmuxProbeCommand(), 30).stdout) }.getOrNull()
+        tmuxProbed = true
+        withMain { tmuxAvailable = info?.available == true }
+        info?.sessions.orEmpty()
+    }
+
+    private fun openTab(id: Int, session: String?, cols: Int, rows: Int): TermTab {
+        var tab: TermTab? = null
+        val holder = object : TerminalListener {
+            override fun onUpdate() { tab?.takeIf { it.firstGeneration }?.onUpdate() }
+            override fun onExit(message: String?) { tab?.takeIf { it.firstGeneration }?.onExit(message) }
+        }
+        val t = remote.openTerminal(cols, rows, session?.let { tmuxAttachCommand(it) }, holder)
+        configure(t)
+        return TermTab(id, t, session).also { it.title = "bash $id"; tab = it }
+    }
+
+    private fun addTerminal(tab: TermTab) {
+        terminals += tab
+        activeTerminal = terminals.size - 1
+        terminalVisible = true
     }
 
     fun attachTerminal(t: Terminal, title: String): TermTab =
@@ -372,6 +502,8 @@ class WorkspaceState(
         tab.terminal.terminate()
         terminals.remove(tab)
         activeTerminal = activeTerminal.coerceAtMost(terminals.size - 1).coerceAtLeast(0)
+        val session = tab.tmuxSession ?: return
+        if (!tab.endedCleanly && !connectionLost) launchIo(null) { remote.exec(tmuxKillCommand(session), 15) }
     }
 
     private fun withTerminal(action: (TermTab) -> Unit) {
@@ -480,16 +612,19 @@ class WorkspaceState(
             if (e is kotlinx.coroutines.CancellationException) throw e
             val lost = e is CoreException.Closed || !runCatching { remote.isConnected }.getOrDefault(false)
             withMain {
-                if (lost) connectionLost = true
-                if (errorPrefix != null) message = "$errorPrefix: ${describe(e)}"
+                if (lost) markLost()
+                if (errorPrefix != null && !lost) message = "$errorPrefix: ${describe(e)}"
             }
         }
     }
 
-    private suspend fun withMain(block: () -> Unit) = withContext(Dispatchers.Main.immediate) { block() }
+    private suspend fun <T> withMain(block: () -> T): T = withContext(Dispatchers.Main.immediate) { block() }
 
     companion object {
         const val MAX_MEDIA_BYTES = 40L * 1024 * 1024
+        const val TMUX_PREFIX = "codetab-"
+        const val PING_TIMEOUT_MS = 4000
+        const val PING_MAX_FAILURES = 2
 
         fun describe(e: Throwable): String = when (e) {
             is CoreException -> e.message ?: e.javaClass.simpleName

@@ -98,6 +98,8 @@ class UiPrefs(private val sp: SharedPreferences? = null) {
     private val hiddenState = mutableStateOf(sp?.getBoolean("showHidden", false) ?: false)
     private val editorSize = mutableFloatStateOf(sp?.getFloat("editorSp", 14f) ?: 14f)
     private val termSize = mutableFloatStateOf(sp?.getFloat("termSp", 13f) ?: 13f)
+    private val keepState = mutableStateOf(sp?.getBoolean("keepSessions", true) ?: true)
+    private val echoState = mutableStateOf(sp?.getBoolean("predictiveEcho", true) ?: true)
 
     var font: MonoFont
         get() = fontState.value
@@ -111,6 +113,12 @@ class UiPrefs(private val sp: SharedPreferences? = null) {
     var terminalTextSp: Float
         get() = termSize.floatValue
         set(v) { termSize.floatValue = v.coerceIn(8f, 24f); sp?.edit()?.putFloat("termSp", termSize.floatValue)?.apply() }
+    var keepSessions: Boolean
+        get() = keepState.value
+        set(v) { keepState.value = v; sp?.edit()?.putBoolean("keepSessions", v)?.apply() }
+    var predictiveEcho: Boolean
+        get() = echoState.value
+        set(v) { echoState.value = v; sp?.edit()?.putBoolean("predictiveEcho", v)?.apply() }
 }
 
 @Composable

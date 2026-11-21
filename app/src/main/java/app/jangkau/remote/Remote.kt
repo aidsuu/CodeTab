@@ -20,7 +20,8 @@ interface Remote : Closeable {
     fun rename(from: String, to: String)
     fun delete(path: String, isDir: Boolean)
     fun exec(command: String, timeoutSec: Int = 120): ExecResult
-    fun openTerminal(cols: Int, rows: Int, listener: TerminalListener): Terminal
+    fun openTerminal(cols: Int, rows: Int, command: String?, listener: TerminalListener): Terminal
+    fun ping(timeoutMs: Int): Int
 
     companion object {
         const val MAX_EDIT_BYTES = 4L * 1024 * 1024
@@ -45,8 +46,9 @@ class RustRemote(private val session: Session) : Remote {
     override fun rename(from: String, to: String) = session.rename(from, to)
     override fun delete(path: String, isDir: Boolean) = session.delete(path, isDir)
     override fun exec(command: String, timeoutSec: Int) = session.exec(command, timeoutSec.toUInt())
-    override fun openTerminal(cols: Int, rows: Int, listener: TerminalListener): Terminal =
-        session.openTerminal(cols.toUShort(), rows.toUShort(), listener)
+    override fun openTerminal(cols: Int, rows: Int, command: String?, listener: TerminalListener): Terminal =
+        session.openTerminal(cols.toUShort(), rows.toUShort(), command, listener)
+    override fun ping(timeoutMs: Int): Int = session.ping(timeoutMs.toUInt()).toInt()
 
     override fun close() {
         runCatching { session.disconnect() }

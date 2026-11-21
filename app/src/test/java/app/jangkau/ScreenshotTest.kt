@@ -89,6 +89,13 @@ class ScreenshotTest {
         file("$root/src/train.py", trainPy)
         file("$root/jobs/train.slurm", "#!/bin/bash\n#SBATCH --gres=gpu:1\n")
         file("$root/jobs/sweep.sh", "for lr in 1e-3 3e-4; do sbatch train.slurm \$lr; done\n")
+        file("$root/src/kernels.cu", "__global__ void conv() {}\n")
+        file("$root/dashboard/index.html", "<!doctype html>\n")
+        file("$root/dashboard/app.ts", "export const app = 1\n")
+        file("$root/dashboard/style.css", "body {}\n")
+        file("$root/Dockerfile", "FROM python:3.12\n")
+        file("$root/Makefile", "all:\n")
+        file("$root/pyproject.toml", "[project]\n")
     }
 
     private fun workspace(scope: kotlinx.coroutines.CoroutineScope, panel: SidePanel): WorkspaceState {
@@ -98,6 +105,8 @@ class ScreenshotTest {
         ws.preload(root, server.list(root))
         ws.preload("$root/src", server.list("$root/src"), open = true)
         ws.preload("$root/jobs", server.list("$root/jobs"), open = true)
+        ws.preload("$root/dashboard", server.list("$root/dashboard"), open = true)
+        ws.latencyMs = 38
         ws.git.repo = root
         ws.git.status = parseGitStatus("## main...origin/main [ahead 2]\u0000 M src/train.py\u0000M  jobs/train.slurm\u0000?? jobs/sweep.sh\u0000")
         ws.git.commitMessage = if (panel == SidePanel.Git) "Add learning rate sweep" else ""

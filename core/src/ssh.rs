@@ -9,7 +9,7 @@ use russh::keys::{HashAlg, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertific
 use russh::{ChannelMsg, Disconnect};
 use russh_sftp::client::SftpSession;
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
@@ -131,8 +131,8 @@ pub struct Session {
 fn ssh_config() -> Arc<client::Config> {
     Arc::new(client::Config {
         inactivity_timeout: None,
-        keepalive_interval: Some(Duration::from_secs(30)),
-        keepalive_max: 4,
+        keepalive_interval: Some(Duration::from_secs(10)),
+        keepalive_max: 3,
         nodelay: true,
         ..Default::default()
     })
@@ -332,6 +332,23 @@ impl Session {
         })
     }
 
+    /// Round trip of one SFTP request, in milliseconds.
+    pub fn ping(&self, timeout_ms: u32) -> Result<u32, CoreError> {
+        rt().block_on(async {
+            let start = Instant::now();
+            let limit = Duration::from_millis(timeout_ms.max(100) as u64);
+            match tokio::time::timeout(limit, self.sftp.canonicalize(".")).await {
+                Err(_) => Err(CoreError::Connect(
+                    "The server did not respond in time".into(),
+                )),
+                Ok(r) => {
+                    r?;
+                    Ok(start.elapsed().as_millis().min(u32::MAX as u128) as u32)
+                }
+            }
+        })
+    }
+
     pub fn list(&self, dir: String) -> Result<Vec<RemoteEntry>, CoreError> {
         rt().block_on(async {
             let mut out = Vec::new();
@@ -473,6 +490,7 @@ impl Session {
         &self,
         cols: u16,
         rows: u16,
+        command: Option<String>,
         listener: Box<dyn TerminalListener>,
     ) -> Result<Arc<Terminal>, CoreError> {
         let listener: Arc<dyn TerminalListener> = Arc::from(listener);
@@ -480,7 +498,10 @@ impl Session {
             let ch = self.handle.lock().await.channel_open_session().await?;
             ch.request_pty(true, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
                 .await?;
-            ch.request_shell(true).await?;
+            match command {
+                Some(cmd) => ch.exec(true, cmd).await?,
+                None => ch.request_shell(true).await?,
+            }
             let (mut reader, writer) = ch.split();
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Outgoing>();
             let term = Terminal::live(cols, rows, tx);

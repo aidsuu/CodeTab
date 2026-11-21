@@ -249,6 +249,32 @@ private fun SettingsMenu(ws: WorkspaceState, open: Boolean, onClose: () -> Unit)
             leadingIcon = { Icon(if (p.showHidden) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, null, Modifier.size(18.dp)) },
             onClick = { p.showHidden = !p.showHidden },
         )
+        HorizontalDivider(color = Ide.border)
+        Text("CONNECTION", style = Ide.section, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+        DropdownMenuItem(
+            text = {
+                Column {
+                    Text("Keep terminals alive with tmux")
+                    Text(
+                        if (ws.tmuxAvailable) "Shells keep running when the connection drops" else "tmux was not found on this server",
+                        style = Ide.small.copy(color = Ide.textDim),
+                    )
+                }
+            },
+            leadingIcon = { if (p.keepSessions) Icon(Icons.Outlined.Check, null, Modifier.size(18.dp)) else Spacer(Modifier.size(18.dp)) },
+            onClick = { p.keepSessions = !p.keepSessions },
+        )
+        DropdownMenuItem(
+            text = {
+                Column {
+                    Text("Predictive typing")
+                    Text("Show typed characters before the server echoes them on slow links", style = Ide.small.copy(color = Ide.textDim))
+                }
+            },
+            leadingIcon = { if (p.predictiveEcho) Icon(Icons.Outlined.Check, null, Modifier.size(18.dp)) else Spacer(Modifier.size(18.dp)) },
+            onClick = { ws.setPredictiveEcho(!p.predictiveEcho) },
+        )
+        HorizontalDivider(color = Ide.border)
         DropdownMenuItem(
             text = { Text("Terminal font size: ${p.terminalTextSp.toInt()} sp") },
             leadingIcon = { Spacer(Modifier.size(18.dp)) },
@@ -378,8 +404,7 @@ private fun ExplorerPanel(ws: WorkspaceState, onAsk: (Ask) -> Unit, onDelete: (R
                         Icon(if (row.expanded) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight, null,
                             tint = if (active) Ide.onPill else Ide.textDim, modifier = Modifier.size(16.dp))
                     } else Spacer(Modifier.width(16.dp))
-                    val (icon, tint) = fileIcon(e.name, e.isDir, row.expanded)
-                    Icon(icon, null, tint = if (active) Ide.onPill else tint, modifier = Modifier.padding(start = 2.dp, end = 8.dp).size(16.dp))
+                    FileIcon(e.name, e.isDir, row.expanded, tint = if (active) Ide.onPill else null, modifier = Modifier.padding(start = 2.dp, end = 6.dp))
                     Text(e.name, style = Ide.label.copy(color = fg, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal),
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     row.hint?.let {
@@ -413,19 +438,6 @@ private fun ExplorerPanel(ws: WorkspaceState, onAsk: (Ask) -> Unit, onDelete: (R
                 }
             }
         }
-    }
-}
-
-private fun fileIcon(name: String, isDir: Boolean, expanded: Boolean): Pair<ImageVector, Color> = when {
-    isDir -> (if (expanded) Icons.Outlined.FolderOpen else Icons.Outlined.Folder) to Ide.folder
-    Languages.viewer(name) == Languages.Viewer.Image -> Icons.Outlined.Image to Ide.media
-    Languages.viewer(name) == Languages.Viewer.Pdf -> Icons.Outlined.PictureAsPdf to Ide.deleted
-    else -> Icons.Outlined.Description to when (Languages.forName(name).label) {
-        "Python" -> Ide.python
-        "Shell" -> Ide.shell
-        "JSON", "YAML" -> Ide.data
-        "Markdown" -> Color(0xFF7FB7D9)
-        else -> Ide.textDim
     }
 }
 
@@ -549,9 +561,8 @@ private fun GitRow(ws: WorkspaceState, c: GitChange, staged: Boolean) {
         Modifier.fillMaxWidth().height(32.dp).clip(Ide.itemShape).clickable { ws.openDiff(c, staged) }.padding(start = 12.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val (icon, tint) = fileIcon(pathName(c.path), false, false)
-        Icon(icon, null, tint = tint, modifier = Modifier.size(15.dp))
-        Text(pathName(c.path), style = Ide.label.copy(color = color), maxLines = 1, modifier = Modifier.padding(start = 8.dp))
+        FileIcon(pathName(c.path), size = 16.dp)
+        Text(pathName(c.path), style = Ide.label.copy(color = color), maxLines = 1, modifier = Modifier.padding(start = 6.dp))
         val dir = pathParent(c.path).takeIf { it != "." }
         Text(dir ?: "", style = Ide.small.copy(color = Ide.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(start = 6.dp).weight(1f))
@@ -673,8 +684,7 @@ private fun EditorTabChip(ws: WorkspaceState, t: EditorTab) {
             .clickable { ws.activeKey = t.key }.padding(start = 12.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val (icon, tint) = fileIcon(t.title, false, false)
-        Icon(icon, null, tint = tint, modifier = Modifier.size(15.dp))
+        FileIcon(t.title, size = 16.dp)
         Text(
             t.title,
             style = Ide.label.copy(
@@ -719,9 +729,7 @@ private fun TerminalPanel(ws: WorkspaceState, modifier: Modifier) {
     val ctx = LocalContext.current
     var view by remember { mutableStateOf<TerminalView?>(null) }
     val term = ws.terminals.getOrNull(ws.activeTerminal)
-    LaunchedEffect(Unit) {
-        if (ws.terminals.isEmpty() && ws.remote.isConnected) ws.newTerminal()
-    }
+    LaunchedEffect(Unit) { ws.ensureTerminal() }
     Column(modifier.fillMaxWidth().background(Ide.card)) {
         Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 10.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Terminal", style = Ide.title.copy(fontSize = 16.sp))
@@ -770,9 +778,13 @@ private fun TerminalPanel(ws: WorkspaceState, modifier: Modifier) {
                     )
                     DisposableEffect(term) { onDispose { term.onUpdate = null } }
                 }
-                term.exited?.let {
+                val notice = when {
+                    term.tmuxSession != null && ws.connectionLost -> "Connection lost  ·  the session keeps running on the server"
+                    else -> term.exited?.let { "$it  ·  tap + for a new shell" }
+                }
+                notice?.let {
                     Text(
-                        "$it  ·  tap + for a new shell", style = Ide.small.copy(color = Ide.warning),
+                        it, style = Ide.small.copy(color = Ide.warning),
                         modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).clip(Ide.pillShape).background(Ide.bg).padding(horizontal = 12.dp, vertical = 6.dp),
                     )
                 }
@@ -832,8 +844,9 @@ private fun StatusBar(ws: WorkspaceState, onReconnect: () -> Unit) {
         ) {
             Box(Modifier.size(7.dp).clip(Ide.pillShape).background(if (lost) Ide.deleted else Ide.added))
             Icon(if (lost) Icons.Outlined.CloudOff else Icons.Outlined.Cloud, null, tint = Ide.text, modifier = Modifier.padding(start = 8.dp).size(14.dp))
-            Text(if (lost) "  Disconnected · tap to reconnect" else "  ${ws.remote.label}", style = Ide.small)
+            Text(if (lost) "  ${ws.reconnectStatus ?: "Disconnected · tap to reconnect"}" else "  ${ws.remote.label}", style = Ide.small)
         }
+        if (!lost) ws.latencyMs?.let { ms -> LatencyPill(ms) }
         ws.git.status?.let { st ->
             Row(Modifier.clickable { ws.panel = SidePanel.Git; ws.sidebarVisible = true }, verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.AccountTree, null, tint = Ide.textDim, modifier = Modifier.size(13.dp))
@@ -852,5 +865,18 @@ private fun StatusBar(ws: WorkspaceState, onReconnect: () -> Unit) {
             if (Languages.runKind(t.title) == Languages.RunKind.Python) Text(ws.profile.pythonCmd, style = dim)
         }
         Text(ws.prefs.font.label.substringBefore(" ("), style = dim)
+    }
+}
+
+@Composable
+private fun LatencyPill(ms: Int) {
+    val color = when {
+        ms < 80 -> Ide.added
+        ms < 200 -> Ide.warning
+        else -> Ide.deleted
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(7.dp).clip(Ide.pillShape).background(color))
+        Text(" $ms ms", style = Ide.small.copy(color = Ide.textDim))
     }
 }

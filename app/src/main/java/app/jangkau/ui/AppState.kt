@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.jangkau.core.ConnectConfig
 import app.jangkau.core.ConnectListener
+import app.jangkau.core.CoreException
 import app.jangkau.core.Hop
 import app.jangkau.core.Session
 import app.jangkau.model.HostProfile
@@ -14,11 +15,17 @@ import app.jangkau.remote.RustRemote
 import app.jangkau.security.KeyVault
 import app.jangkau.security.StoredKey
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class HostKeyPrompt(
     val host: String,
@@ -38,6 +45,9 @@ class AppState(
     val prefs: UiPrefs = UiPrefs(),
     private val cacheDir: java.io.File = java.io.File(System.getProperty("java.io.tmpdir"), "codetab-preview"),
     private val connector: (ConnectConfig, ConnectListener) -> Remote = { cfg, l -> RustRemote(Session.connect(cfg, l)) },
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val retryDelaysMs: List<Long> = listOf(0, 2_000, 4_000, 8_000, 15_000, 30_000),
+    private val pingIntervalMs: Long = 5_000,
 ) {
     var profiles by mutableStateOf(profilesStore.load()); private set
     var keys by mutableStateOf(vault.list()); private set
@@ -46,6 +56,13 @@ class AppState(
     var hostKeyPrompt by mutableStateOf<HostKeyPrompt?>(null); private set
     var passphraseRequest by mutableStateOf<PassphraseRequest?>(null); private set
     var workspace by mutableStateOf<WorkspaceState?>(null); private set
+
+    var networkAvailable = true
+        private set
+    private var lastNetwork: Long? = null
+    private var reconnectJob: Job? = null
+    private var monitorJob: Job? = null
+    private val wake = Channel<Unit>(Channel.CONFLATED)
 
     private val passphrases = HashMap<String, String>()
 
@@ -85,35 +102,48 @@ class AppState(
 
     fun reconnect() {
         val ws = workspace ?: return
-        start(ws.profile, existing = ws)
+        ws.markLost()
+        if (reconnectJob?.isActive == true) wake.trySend(Unit) else autoReconnect(ws)
     }
 
     fun disconnect() {
         val ws = workspace ?: return
         workspace = null
-        scope.launch(Dispatchers.IO) { runCatching { ws.remote.close() } }
+        reconnectJob?.cancel()
+        monitorJob?.cancel()
+        ws.onConnectionLost = null
+        scope.launch(io) { runCatching { ws.remote.close() } }
     }
 
-    private fun start(p: HostProfile, existing: WorkspaceState? = null) {
+    fun onNetworkChanged(available: Boolean, networkId: Long?) {
+        networkAvailable = available
+        val previous = lastNetwork
+        if (available && networkId != null) lastNetwork = networkId
+        val ws = workspace ?: return
+        if (available && previous != null && networkId != null && networkId != previous) ws.markLost()
+        if (available) wake.trySend(Unit)
+    }
+
+    private fun listener(onProgress: (String) -> Unit) = object : ConnectListener {
+        override fun progress(step: String) { scope.launch(Dispatchers.Main) { onProgress(step) } }
+
+        override fun confirmHostKey(host: String, port: UShort, fingerprint: String, previousFingerprint: String?): Boolean {
+            val d = CompletableDeferred<Boolean>()
+            scope.launch(Dispatchers.Main) { hostKeyPrompt = HostKeyPrompt(host, port.toInt(), fingerprint, previousFingerprint, d) }
+            return runBlocking { d.await() }
+        }
+    }
+
+    private fun start(p: HostProfile) {
         if (progress != null) return
         progress = "Preparing connection…"
-        val listener = object : ConnectListener {
-            override fun progress(step: String) { scope.launch(Dispatchers.Main) { if (progress != null) progress = step } }
-
-            override fun confirmHostKey(host: String, port: UShort, fingerprint: String, previousFingerprint: String?): Boolean {
-                val d = CompletableDeferred<Boolean>()
-                scope.launch(Dispatchers.Main) { hostKeyPrompt = HostKeyPrompt(host, port.toInt(), fingerprint, previousFingerprint, d) }
-                return runBlocking { d.await() }
-            }
-        }
-        scope.launch(Dispatchers.IO) {
+        val l = listener { step -> if (progress != null) progress = step }
+        scope.launch(io) {
             try {
-                val cfg = buildConfig(p)
-                val remote = connector(cfg, listener)
+                val remote = connector(buildConfig(p), l)
                 withContext(Dispatchers.Main) {
                     progress = null
-                    if (existing != null && workspace === existing) existing.replaceRemote(remote)
-                    else workspace = WorkspaceState(remote, p, scope, prefs = prefs, cacheDir = cacheDir).also { it.start() }
+                    open(WorkspaceState(remote, p, scope, io, prefs = prefs, cacheDir = cacheDir))
                 }
             } catch (e: Exception) {
                 if (e.message?.contains("assphrase") == true) keysNeeded(p).forEach { passphrases.remove(it.id) }
@@ -122,6 +152,59 @@ class AppState(
                     error = WorkspaceState.describe(e)
                 }
             }
+        }
+    }
+
+    private fun open(ws: WorkspaceState) {
+        workspace = ws
+        ws.onConnectionLost = { autoReconnect(ws) }
+        ws.start()
+        monitorJob?.cancel()
+        monitorJob = scope.launch {
+            while (isActive && workspace === ws) {
+                delay(pingIntervalMs)
+                ws.pingOnce()
+            }
+        }
+    }
+
+    private fun autoReconnect(ws: WorkspaceState) {
+        if (reconnectJob?.isActive == true || workspace !== ws) return
+        reconnectJob = scope.launch(Dispatchers.Main.immediate) {
+            var attempt = 0
+            while (isActive && workspace === ws && ws.connectionLost) {
+                val wait = retryDelaysMs[attempt.coerceAtMost(retryDelaysMs.size - 1)]
+                if (wait > 0) {
+                    ws.reconnectStatus = "Reconnecting in ${(wait + 999) / 1000} s · tap to retry now"
+                    withTimeoutOrNull(wait) { wake.receive() }
+                }
+                while (!networkAvailable && isActive) {
+                    ws.reconnectStatus = "Waiting for the network…"
+                    wake.receive()
+                }
+                attempt++
+                ws.reconnectStatus = "Reconnecting…"
+                val result = runCatching {
+                    withContext(io) { connector(buildConfig(ws.profile), listener { step -> ws.reconnectStatus = step }) }
+                }
+                if (workspace !== ws) {
+                    result.getOrNull()?.let { r -> launch(io) { runCatching { r.close() } } }
+                    return@launch
+                }
+                val remote = result.getOrNull()
+                if (remote != null) {
+                    ws.replaceRemote(remote)
+                    return@launch
+                }
+                val e = result.exceptionOrNull()
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (e is CoreException.Auth || e is CoreException.HostKeyRejected || e is CoreException.Key || e is IllegalStateException) {
+                    ws.reconnectStatus = null
+                    error = WorkspaceState.describe(e)
+                    return@launch
+                }
+            }
+            ws.reconnectStatus = null
         }
     }
 
@@ -134,7 +217,7 @@ class AppState(
             target = hop(p.host, p.port, p.user, p.keyId),
             jump = p.jump?.let { hop(it.host, it.port, it.user, it.keyId ?: p.keyId) },
             knownHostsFile = knownHostsFile,
-            timeoutSecs = 25u,
+            timeoutSecs = 20u,
         )
     }
 }

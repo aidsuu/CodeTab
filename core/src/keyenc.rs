@@ -125,6 +125,18 @@ pub fn encode_text(text: String, mods: Mods) -> Vec<u8> {
     out
 }
 
+/// Mouse wheel report for programs that enabled mouse tracking, such as tmux with `mouse on`.
+#[uniffi::export]
+pub fn encode_wheel(up: bool, row: u16, col: u16, sgr: bool) -> Vec<u8> {
+    let button = if up { 64 } else { 65 };
+    if sgr {
+        format!("\x1b[<{button};{};{}M", col + 1, row + 1).into_bytes()
+    } else {
+        let pos = |v: u16| (32 + 1 + v.min(222)) as u8;
+        vec![0x1b, b'[', b'M', 32 + button, pos(col), pos(row)]
+    }
+}
+
 fn ctrl_byte(ch: char) -> Option<u8> {
     Some(match ch {
         'a'..='z' => ch as u8 - b'a' + 1,
@@ -156,6 +168,16 @@ pub fn encode_paste(text: String, bracketed: bool) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wheel_reports() {
+        assert_eq!(encode_wheel(true, 4, 9, true), b"\x1b[<64;10;5M");
+        assert_eq!(encode_wheel(false, 0, 0, true), b"\x1b[<65;1;1M");
+        assert_eq!(
+            encode_wheel(true, 0, 0, false),
+            vec![0x1b, b'[', b'M', 96, 33, 33]
+        );
+    }
 
     const NONE: Mods = Mods {
         ctrl: false,

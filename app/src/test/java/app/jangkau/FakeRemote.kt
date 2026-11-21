@@ -18,6 +18,8 @@ class FakeRemote(override val home: String = "/home/user") : Remote {
     val commands = mutableListOf<String>()
     var execHandler: (String) -> ExecResult = { ExecResult(127, "", "command not found") }
     var clock = 1_700_000_000L
+    var pingMs: Int? = 20
+    val terminalCommands = mutableListOf<String?>()
 
     fun file(path: String, text: String) {
         var d = pathParent(path)
@@ -51,7 +53,12 @@ class FakeRemote(override val home: String = "/home/user") : Remote {
         dirs.removeAll { it == path || it.startsWith("$path/") }
     }
     override fun exec(command: String, timeoutSec: Int): ExecResult { commands += command; return execHandler(command) }
-    override fun openTerminal(cols: Int, rows: Int, listener: TerminalListener): Terminal = Terminal(cols.toUShort(), rows.toUShort())
+    override fun openTerminal(cols: Int, rows: Int, command: String?, listener: TerminalListener): Terminal {
+        if (!isConnected) throw app.jangkau.core.CoreException.Closed("Connection closed")
+        terminalCommands += command
+        return Terminal(cols.toUShort(), rows.toUShort())
+    }
+    override fun ping(timeoutMs: Int): Int = pingMs ?: throw app.jangkau.core.CoreException.Connect("The server did not respond in time")
     override fun close() { isConnected = false }
 
     fun text(path: String) = files[path]?.toString(Charsets.UTF_8)

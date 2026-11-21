@@ -75,6 +75,7 @@ fn jump_sftp_exec_and_terminal() {
         "both new hosts must be confirmed"
     );
     assert!(s.is_connected());
+    assert!(s.ping(5000).unwrap() < 5000);
     assert!(s.label().contains("via localhost"));
     assert!(!s.home().is_empty());
 
@@ -121,7 +122,7 @@ fn jump_sftp_exec_and_terminal() {
 
     let updates = Arc::new(Mutex::new(0));
     let t = s
-        .open_terminal(80, 24, Box::new(TermL(updates.clone())))
+        .open_terminal(80, 24, None, Box::new(TermL(updates.clone())))
         .unwrap();
     t.send(b"echo JANGKAU_$((40+2)); tput cols\r".to_vec());
     let start = Instant::now();
@@ -186,6 +187,79 @@ fn jump_sftp_exec_and_terminal() {
     .unwrap();
     assert!(matches!(err, CoreError::HostKeyRejected(_)), "{err:?}");
     assert_eq!(p3.load(Ordering::SeqCst), 1);
+}
+
+fn wait_for(t: &Terminal, needle: &str) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(15) {
+        if t.screen_text().contains(needle) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    false
+}
+
+#[test]
+fn tmux_session_survives_reconnect() {
+    let Some((port, user, key, dir)) = env() else {
+        return;
+    };
+    let cfg = ConnectConfig {
+        target: hop("127.0.0.1", port, &user, &key),
+        jump: None,
+        known_hosts_file: format!("{dir}/kh_tmux"),
+        timeout_secs: 20,
+    };
+    let connect = || {
+        Session::connect(
+            cfg.clone(),
+            Box::new(Listener {
+                prompts: Arc::new(AtomicUsize::new(0)),
+                accept: true,
+            }),
+        )
+        .unwrap()
+    };
+    let probe = |s: &Session| parse_tmux_probe(s.exec(tmux_probe_command(), 30).unwrap().stdout);
+    let updates = Arc::new(Mutex::new(0));
+
+    let s = connect();
+    if !probe(&s).available {
+        eprintln!("tmux is not installed, skipping");
+        s.disconnect();
+        return;
+    }
+    let name = format!("codetab-e2e{}", std::process::id());
+    let _ = s.exec(tmux_kill_command(name.clone()), 30);
+    let t = s
+        .open_terminal(
+            80,
+            24,
+            Some(tmux_attach_command(name.clone())),
+            Box::new(TermL(updates.clone())),
+        )
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    t.send(b"echo KEEP_$((6*7))\r".to_vec());
+    assert!(wait_for(&t, "KEEP_42"), "screen: {}", t.screen_text());
+    s.disconnect();
+
+    let s2 = connect();
+    assert!(probe(&s2).sessions.contains(&name));
+    let t2 = s2
+        .open_terminal(
+            80,
+            24,
+            Some(tmux_attach_command(name.clone())),
+            Box::new(TermL(updates)),
+        )
+        .unwrap();
+    assert!(wait_for(&t2, "KEEP_42"), "screen: {}", t2.screen_text());
+    assert!(t2.snapshot(0).mouse_reporting);
+    s2.exec(tmux_kill_command(name.clone()), 30).unwrap();
+    assert!(!probe(&s2).sessions.contains(&name));
+    s2.disconnect();
 }
 
 #[test]

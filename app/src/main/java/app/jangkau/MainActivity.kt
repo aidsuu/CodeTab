@@ -1,5 +1,7 @@
 package app.jangkau
 
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
@@ -22,6 +24,19 @@ import app.jangkau.ui.WorkspaceScreen
 
 class MainActivity : ComponentActivity() {
     private lateinit var state: AppState
+    private val connectivity by lazy { getSystemService(ConnectivityManager::class.java) }
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            runOnUiThread { state.onNetworkChanged(true, network.networkHandle) }
+        }
+
+        override fun onLost(network: Network) {
+            runOnUiThread {
+                val active = connectivity.activeNetwork
+                state.onNetworkChanged(active != null, active?.networkHandle)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,6 +47,7 @@ class MainActivity : ComponentActivity() {
             prefs = UiPrefs(getSharedPreferences("ui", MODE_PRIVATE)),
             cacheDir = java.io.File(cacheDir, "preview").also { d -> d.deleteRecursively() },
         )
+        runCatching { connectivity.registerDefaultNetworkCallback(networkCallback) }
         setContent {
             JangkauTheme {
                 Box(Modifier.fillMaxSize().background(Ide.editor).safeDrawingPadding()) {
@@ -55,6 +71,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        runCatching { connectivity.unregisterNetworkCallback(networkCallback) }
+        super.onDestroy()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
