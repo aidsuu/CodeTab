@@ -1,0 +1,3 @@
+[bindings.kotlin]
+package_name = "app.jangkau.core"
+cdylib_name = "jangkau_core"

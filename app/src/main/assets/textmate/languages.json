@@ -1,0 +1,12 @@
+{
+  "languages": [
+    { "name": "python", "scopeName": "source.python", "grammar": "textmate/python/syntaxes/python.tmLanguage.json", "languageConfiguration": "textmate/python/language-configuration.json" },
+    { "name": "shell", "scopeName": "source.shell", "grammar": "textmate/shell/syntaxes/shell.tmLanguage.json", "languageConfiguration": "textmate/shell/language-configuration.json" },
+    { "name": "json", "scopeName": "source.json", "grammar": "textmate/json/syntaxes/json.tmLanguage.json", "languageConfiguration": "textmate/json/language-configuration.json" },
+    { "name": "yaml", "scopeName": "source.yaml", "grammar": "textmate/yaml/syntaxes/yaml.tmLanguage.json", "languageConfiguration": "textmate/yaml/language-configuration.json" },
+    { "name": "c", "scopeName": "source.c", "grammar": "textmate/c/syntaxes/c.tmLanguage.json", "languageConfiguration": "textmate/c/language-configuration.json" },
+    { "name": "diff", "scopeName": "source.diff", "grammar": "textmate/diff/syntaxes/diff.tmLanguage.json", "languageConfiguration": "textmate/diff/language-configuration.json" },
+    { "name": "markdown", "scopeName": "text.html.markdown", "grammar": "textmate/markdown/syntaxes/markdown.tmLanguage.json", "languageConfiguration": "textmate/markdown/language-configuration.json",
+      "embeddedLanguages": { "meta.embedded.block.python": "python", "meta.embedded.block.shellscript": "shell", "meta.embedded.block.json": "json", "meta.embedded.block.yaml": "yaml", "meta.embedded.block.c": "c" } }
+  ]
+}

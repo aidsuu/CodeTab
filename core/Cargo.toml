@@ -1,0 +1,37 @@
+[package]
+name = "jangkau_core"
+version = "0.2.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "jangkau_core"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+uniffi = "=0.28.3"
+thiserror = "2"
+tokio = { version = "1.47", features = ["rt-multi-thread", "time", "sync", "macros", "io-util", "net"] }
+russh = { version = "=0.65.1", default-features = false, features = ["ring", "rsa", "flate2"] }
+russh-sftp = "=3.0.1"
+vt100 = "=0.16.2"
+getrandom = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+panic = "unwind"

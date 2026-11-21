@@ -1,0 +1,38 @@
+name: Bug report
+description: Report something that does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect to a host through a jump host
+        2. Open a file
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: CodeTab version
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      placeholder: "Tablet model, Android 14"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Screenshots or logs
+      description: Remove private keys, passphrases, and host names before posting.

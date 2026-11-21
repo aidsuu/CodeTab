@@ -1,0 +1,499 @@
+package app.jangkau.ui
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import app.jangkau.core.CoreException
+import app.jangkau.core.GitChange
+import app.jangkau.core.GitOp
+import app.jangkau.core.GitStatus
+import app.jangkau.core.Mods
+import app.jangkau.core.RemoteEntry
+import app.jangkau.core.TermSnapshot
+import app.jangkau.core.Terminal
+import app.jangkau.core.TerminalListener
+import app.jangkau.core.encodePaste
+import app.jangkau.core.gitCommand
+import app.jangkau.core.parseGitStatus
+import app.jangkau.core.pathExpandHome
+import app.jangkau.core.pathJoin
+import app.jangkau.core.pathName
+import app.jangkau.core.pathParent
+import app.jangkau.core.pathRelativeTo
+import app.jangkau.core.shQuote
+import app.jangkau.editor.Languages
+import app.jangkau.model.HostProfile
+import app.jangkau.remote.Remote
+import app.jangkau.remote.combined
+import app.jangkau.remote.ok
+import app.jangkau.term.TerminalSource
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+enum class SidePanel { Explorer, Git }
+
+class EditorTab(
+    val key: String,
+    val path: String,
+    val title: String,
+    val initialText: String,
+    mtime: Long,
+    val readOnly: Boolean = false,
+    val language: String = Languages.forName(title).label,
+    val viewer: Languages.Viewer? = null,
+    val file: java.io.File? = null,
+    val size: Long = 0,
+) {
+    var mtime by mutableStateOf(mtime)
+    var dirty by mutableStateOf(false)
+    var cursorLine by mutableIntStateOf(1)
+    var cursorCol by mutableIntStateOf(1)
+    var currentText: (() -> String)? = null
+    var undo: (() -> Unit)? = null
+    var redo: (() -> Unit)? = null
+    var saving by mutableStateOf(false)
+
+    fun text(): String = currentText?.invoke() ?: initialText
+}
+
+class TermTab(val id: Int, val terminal: Terminal) : TerminalSource, TerminalListener {
+    var title by mutableStateOf("bash")
+    var stickyCtrl by mutableStateOf(false)
+    var stickyAlt by mutableStateOf(false)
+    var exited by mutableStateOf<String?>(null)
+    @Volatile var onUpdate: (() -> Unit)? = null
+
+    override fun snapshot(scrollOffset: Int): TermSnapshot = terminal.snapshot(scrollOffset.toUInt())
+    override fun send(bytes: ByteArray) { terminal.send(bytes) }
+    override fun resize(cols: Int, rows: Int) = terminal.resize(cols.toUShort(), rows.toUShort())
+    override fun consumeMods(): Mods {
+        val m = Mods(stickyCtrl, stickyAlt, false)
+        if (stickyCtrl) stickyCtrl = false
+        if (stickyAlt) stickyAlt = false
+        return m
+    }
+
+    fun type(text: String) { terminal.send(text.toByteArray()) }
+    fun paste(text: String) { terminal.send(encodePaste(text, terminal.snapshot(0u).bracketedPaste)) }
+
+    override fun onUpdate() { onUpdate?.invoke() }
+    override fun onExit(message: String?) { exited = message ?: "Shell selesai"; onUpdate?.invoke() }
+}
+
+class GitState {
+    var repo by mutableStateOf<String?>(null)
+    var status by mutableStateOf<GitStatus?>(null)
+    var notRepo by mutableStateOf(false)
+    var busy by mutableStateOf(false)
+    var output by mutableStateOf("")
+    var commitMessage by mutableStateOf("")
+}
+
+data class SaveConflict(val tab: EditorTab)
+
+data class TreeRow(val entry: RemoteEntry, val depth: Int, val expanded: Boolean, val loading: Boolean, val hint: String? = null)
+
+class WorkspaceState(
+    remote: Remote,
+    val profile: HostProfile,
+    private val scope: CoroutineScope,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+    val prefs: UiPrefs = UiPrefs(),
+    private val cacheDir: java.io.File = java.io.File(System.getProperty("java.io.tmpdir"), "codetab-preview"),
+) {
+    var remote by mutableStateOf(remote)
+        private set
+    var root by mutableStateOf(pathExpandHome(profile.workDir, remote.home))
+        private set
+    private val children = mutableStateMapOf<String, List<RemoteEntry>>()
+    private val expanded = mutableStateMapOf<String, Boolean>()
+    private val loading = mutableStateMapOf<String, Boolean>()
+    var selectedPath by mutableStateOf<String?>(null)
+
+    val tabs = mutableStateListOf<EditorTab>()
+    var activeKey by mutableStateOf<String?>(null)
+    val activeTab get() = tabs.firstOrNull { it.key == activeKey }
+
+    var panel by mutableStateOf(SidePanel.Explorer)
+    var sidebarVisible by mutableStateOf(true)
+    var terminalVisible by mutableStateOf(true)
+    var terminalMaximized by mutableStateOf(false)
+    val terminals = mutableStateListOf<TermTab>()
+    var activeTerminal by mutableIntStateOf(0)
+    private var nextTermId = 1
+
+    var message by mutableStateOf<String?>(null)
+    var saveConflict by mutableStateOf<SaveConflict?>(null)
+    var connectionLost by mutableStateOf(false)
+    var editorTextSp: Float
+        get() = prefs.editorTextSp
+        set(v) { prefs.editorTextSp = v }
+    var filter by mutableStateOf("")
+    val git = GitState()
+
+    private fun visible(e: RemoteEntry) = prefs.showHidden || !e.name.startsWith(".")
+
+    fun rows(): List<TreeRow> {
+        val out = ArrayList<TreeRow>()
+        val q = filter.trim()
+        if (q.isNotEmpty()) {
+            fun search(dir: String) {
+                for (e in children[dir].orEmpty()) {
+                    if (!visible(e)) continue
+                    if (e.name.contains(q, ignoreCase = true)) {
+                        out += TreeRow(e, 0, false, false, hint = pathRelativeTo(pathParent(e.path), root)?.takeIf { it != "." })
+                    }
+                    if (e.isDir) search(e.path)
+                }
+            }
+            search(root)
+            return out
+        }
+        fun walk(dir: String, depth: Int) {
+            for (e in children[dir].orEmpty()) {
+                if (!visible(e)) continue
+                val open = e.isDir && expanded[e.path] == true
+                out += TreeRow(e, depth, open, loading[e.path] == true)
+                if (open) walk(e.path, depth + 1)
+            }
+        }
+        walk(root, 0)
+        return out
+    }
+
+    val rootLoaded get() = children.containsKey(root)
+
+    fun start() {
+        refreshDir(root)
+        refreshGit()
+    }
+
+    fun replaceRemote(newRemote: Remote) {
+        val old = remote
+        remote = newRemote
+        connectionLost = false
+        terminals.forEach { if (it.exited == null) it.exited = "Koneksi lama terputus" }
+        scope.launch(io) { runCatching { old.close() } }
+        refreshAll()
+        message = "Tersambung kembali ke ${newRemote.label}"
+    }
+
+    fun openFolder(path: String) {
+        val p = pathExpandHome(path.trim().ifEmpty { "~" }, remote.home)
+        root = p
+        expanded.clear()
+        children.clear()
+        refreshDir(p)
+        refreshGit()
+    }
+
+    fun refreshDir(dir: String) {
+        loading[dir] = true
+        launchIo("Gagal membaca folder") {
+            val list = remote.list(dir)
+            withMain { children[dir] = list }
+        }.invokeOnCompletion { loading.remove(dir) }
+    }
+
+    fun refreshAll() {
+        refreshDir(root)
+        expanded.filterValues { it }.keys.forEach { refreshDir(it) }
+        refreshGit()
+    }
+
+    fun toggle(entry: RemoteEntry) {
+        selectedPath = entry.path
+        if (!entry.isDir) { open(entry.path); return }
+        val now = expanded[entry.path] != true
+        expanded[entry.path] = now
+        if (now && !children.containsKey(entry.path)) refreshDir(entry.path)
+    }
+
+    fun collapseAll() = expanded.clear()
+
+    fun preload(dir: String, entries: List<RemoteEntry>, open: Boolean = false) {
+        children[dir] = entries
+        if (open) expanded[dir] = true
+    }
+
+    fun createFile(dir: String, name: String) = launchIo("Gagal membuat file") {
+        val path = pathJoin(dir, name)
+        if (remote.stat(path) != null) throw IllegalStateException("$name sudah ada")
+        remote.write(path, ByteArray(0))
+        withMain { expanded[dir] = true }
+        reloadDir(dir)
+        withMain { open(path) }
+    }
+
+    fun createFolder(dir: String, name: String) = launchIo("Gagal membuat folder") {
+        remote.mkdir(pathJoin(dir, name))
+        withMain { expanded[dir] = true }
+        reloadDir(dir)
+    }
+
+    fun rename(entry: RemoteEntry, newName: String) = launchIo("Gagal mengganti nama") {
+        val target = pathJoin(pathParent(entry.path), newName)
+        remote.rename(entry.path, target)
+        reloadDir(pathParent(entry.path))
+        withMain {
+            tabs.filter { it.path == entry.path }.forEach { closeTab(it, force = true) }
+        }
+    }
+
+    fun delete(entry: RemoteEntry) = launchIo("Gagal menghapus") {
+        remote.delete(entry.path, entry.isDir)
+        reloadDir(pathParent(entry.path))
+        withMain {
+            tabs.filter { it.path == entry.path || pathRelativeTo(it.path, entry.path) != null }
+                .forEach { closeTab(it, force = true) }
+            message = "${entry.name} dihapus"
+        }
+        refreshGit()
+    }
+
+    private suspend fun reloadDir(dir: String) {
+        val list = remote.list(dir)
+        withMain { children[dir] = list }
+    }
+
+    fun open(path: String) {
+        tabs.firstOrNull { it.key == path }?.let { activeKey = it.key; return }
+        val viewer = Languages.viewer(pathName(path))
+        if (viewer != null) { openMedia(path, viewer); return }
+        launchIo("Gagal membuka file") {
+            val st = remote.stat(path)
+            val bytes = remote.read(path, Remote.MAX_EDIT_BYTES)
+            if (bytes.take(8000).any { it == 0.toByte() }) throw IllegalStateException("File biner tidak bisa dibuka di editor")
+            val text = bytes.toString(Charsets.UTF_8)
+            withMain {
+                val tab = EditorTab(path, path, pathName(path), text, st?.mtime?.toLong() ?: 0L)
+                tabs += tab
+                activeKey = tab.key
+            }
+        }
+    }
+
+    private fun openMedia(path: String, viewer: Languages.Viewer) = launchIo("Gagal membuka ${pathName(path)}") {
+        val st = remote.stat(path)
+        val bytes = remote.read(path, MAX_MEDIA_BYTES)
+        cacheDir.mkdirs()
+        val ext = pathName(path).substringAfterLast('.', "bin")
+        val local = java.io.File(cacheDir, "${Integer.toHexString(path.hashCode())}-${st?.mtime ?: 0u}.$ext")
+        local.writeBytes(bytes)
+        withMain {
+            val tab = EditorTab(path, path, pathName(path), "", st?.mtime?.toLong() ?: 0L, readOnly = true,
+                language = if (viewer == Languages.Viewer.Pdf) "PDF" else "Gambar", viewer = viewer, file = local, size = bytes.size.toLong())
+            tabs += tab
+            activeKey = tab.key
+        }
+    }
+
+    fun openReadOnly(key: String, title: String, text: String) {
+        tabs.removeAll { it.key == key }
+        val tab = EditorTab(key, key, title, text, 0, readOnly = true, language = Languages.forName(title).label)
+        tabs += tab
+        activeKey = key
+    }
+
+    fun closeTab(tab: EditorTab, force: Boolean = false) {
+        tab.file?.takeIf { f -> tabs.none { it !== tab && it.file == f } }?.delete()
+        if (tab.dirty && !force) {
+            message = "${tab.title} belum disimpan. Simpan dulu atau tutup lagi untuk membuang perubahan."
+            tab.dirty = false
+            return
+        }
+        val i = tabs.indexOf(tab)
+        tabs.remove(tab)
+        if (activeKey == tab.key) activeKey = tabs.getOrNull(i.coerceAtMost(tabs.size - 1))?.key
+    }
+
+    fun save(tab: EditorTab? = activeTab, overwrite: Boolean = false) {
+        if (tab == null || tab.readOnly || tab.saving) return
+        tab.saving = true
+        launchIo("Gagal menyimpan") {
+            val st = remote.stat(tab.path)
+            val remoteMtime = st?.mtime?.toLong() ?: 0L
+            if (!overwrite && st != null && tab.mtime != 0L && remoteMtime != tab.mtime) {
+                withMain { saveConflict = SaveConflict(tab) }
+                return@launchIo
+            }
+            remote.write(tab.path, tab.text().toByteArray(Charsets.UTF_8))
+            val after = remote.stat(tab.path)?.mtime?.toLong() ?: 0L
+            withMain {
+                tab.mtime = after
+                tab.dirty = false
+                message = "Tersimpan: ${tab.title}"
+            }
+            refreshGit()
+        }.invokeOnCompletion { tab.saving = false }
+    }
+
+    fun reloadFromRemote(tab: EditorTab) {
+        tabs.remove(tab)
+        if (activeKey == tab.key) activeKey = null
+        open(tab.path)
+    }
+
+    var openingTerminal by mutableStateOf(false)
+        private set
+
+    fun newTerminal(cols: Int = 100, rows: Int = 30, then: ((TermTab) -> Unit)? = null) {
+        if (openingTerminal) return
+        openingTerminal = true
+        val id = nextTermId++
+        var tab: TermTab? = null
+        val holder = object : TerminalListener {
+            override fun onUpdate() { tab?.onUpdate() }
+            override fun onExit(message: String?) { tab?.onExit(message) }
+        }
+        launchIo("Gagal membuka terminal") {
+            val t = remote.openTerminal(cols, rows, holder)
+            withMain {
+                val tt = TermTab(id, t).also { it.title = "bash $id" }
+                tab = tt
+                terminals += tt
+                activeTerminal = terminals.size - 1
+                terminalVisible = true
+                then?.invoke(tt)
+            }
+        }.invokeOnCompletion { openingTerminal = false }
+    }
+
+    fun attachTerminal(t: Terminal, title: String): TermTab =
+        TermTab(nextTermId++, t).also { it.title = title; terminals += it; activeTerminal = terminals.size - 1 }
+
+    fun closeTerminal(tab: TermTab) {
+        tab.terminal.terminate()
+        terminals.remove(tab)
+        activeTerminal = activeTerminal.coerceAtMost(terminals.size - 1).coerceAtLeast(0)
+    }
+
+    private fun withTerminal(action: (TermTab) -> Unit) {
+        val t = terminals.getOrNull(activeTerminal)?.takeIf { it.exited == null }
+        if (t != null) action(t) else newTerminal(then = action)
+    }
+
+    fun cdInTerminal(dir: String) {
+        terminalVisible = true
+        withTerminal { it.type("cd ${shQuote(dir)}\r") }
+    }
+
+    fun runFile(path: String, slurm: Boolean = false) {
+        val tab = tabs.firstOrNull { it.path == path }
+        if (tab?.dirty == true) save(tab)
+        val kind = Languages.runKind(pathName(path))
+        val dir = shQuote(pathParent(path))
+        val file = shQuote(pathName(path))
+        val cmd = when {
+            slurm || kind == Languages.RunKind.Slurm -> "sbatch $file"
+            kind == Languages.RunKind.Python -> "${profile.pythonCmd} $file"
+            kind == Languages.RunKind.Shell -> "bash $file"
+            else -> { message = "Tipe file ini tidak bisa dijalankan langsung"; return }
+        }
+        terminalVisible = true
+        withTerminal { it.type("cd $dir && $cmd\r") }
+    }
+
+    fun refreshGit() {
+        launchIo(null) {
+            val top = remote.exec(gitCommand(root, GitOp.TopLevel), 30)
+            if (!top.ok) {
+                withMain { git.repo = null; git.status = null; git.notRepo = true }
+                return@launchIo
+            }
+            val repo = top.stdout.trim()
+            val st = remote.exec(gitCommand(repo, GitOp.Status), 60)
+            withMain {
+                git.repo = repo
+                git.notRepo = false
+                git.status = if (st.ok) parseGitStatus(st.stdout) else null
+                if (!st.ok) git.output = st.combined
+            }
+        }
+    }
+
+    private fun gitRun(op: GitOp, label: String, refresh: Boolean = true) {
+        val repo = git.repo ?: root
+        git.busy = true
+        launchIo("git $label gagal") {
+            val r = remote.exec(gitCommand(repo, op), 300)
+            withMain {
+                git.output = r.combined.ifEmpty { if (r.ok) "git $label selesai" else "git $label gagal (kode ${r.exitCode})" }
+                if (op is GitOp.Commit && r.ok) git.commitMessage = ""
+            }
+            if (refresh) refreshGit()
+        }.invokeOnCompletion { git.busy = false }
+    }
+
+    fun gitStage(paths: List<String>) = gitRun(GitOp.Stage(paths), "add")
+    fun gitUnstage(paths: List<String>) = gitRun(GitOp.Unstage(paths), "reset")
+    fun gitDiscard(paths: List<String>) = gitRun(GitOp.Discard(paths), "checkout")
+    fun gitCommit() {
+        val msg = git.commitMessage.trim()
+        if (msg.isEmpty()) { message = "Tulis pesan commit dulu"; return }
+        gitRun(GitOp.Commit(msg), "commit")
+    }
+    fun gitPull() = gitRun(GitOp.Pull, "pull")
+    fun gitPush() = gitRun(GitOp.Push, "push")
+    fun gitFetch() = gitRun(GitOp.Fetch, "fetch")
+    fun gitInit() { git.repo = root; gitRun(GitOp.Init, "init") }
+
+    fun openDiff(change: GitChange, staged: Boolean) {
+        val repo = git.repo ?: return
+        launchIo("Gagal membaca diff") {
+            val op = if (change.untracked) GitOp.DiffUntracked(change.path) else GitOp.Diff(change.path, staged)
+            val r = remote.exec(gitCommand(repo, op), 60)
+            val text = r.stdout.ifEmpty { r.combined.ifEmpty { "(tidak ada perbedaan)" } }
+            withMain { openReadOnly("diff:${if (staged) "s" else "w"}:${change.path}", "${pathName(change.path)}.diff", text) }
+        }
+    }
+
+    fun shortcut(ctrl: Boolean, shift: Boolean, key: Char): Boolean {
+        if (!ctrl) return false
+        when {
+            key == 's' -> save()
+            key == '`' || key == 'j' -> terminalVisible = !terminalVisible
+            key == 'b' -> sidebarVisible = !sidebarVisible
+            key == 'w' -> activeTab?.let { closeTab(it) }
+            key == '\r' -> activeTab?.takeIf { !it.readOnly }?.let { runFile(it.path) }
+            shift && key == 'g' -> { sidebarVisible = true; panel = SidePanel.Git }
+            shift && key == 'e' -> { sidebarVisible = true; panel = SidePanel.Explorer }
+            key == '=' || key == '+' -> editorTextSp = (editorTextSp + 1f).coerceAtMost(28f)
+            key == '-' -> editorTextSp = (editorTextSp - 1f).coerceAtLeast(9f)
+            else -> return false
+        }
+        return true
+    }
+
+    fun absolute(repoRelative: String): String = pathJoin(git.repo ?: root, repoRelative)
+
+    private fun launchIo(errorPrefix: String?, block: suspend CoroutineScope.() -> Unit) = scope.launch(io) {
+        try {
+            block()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            val lost = e is CoreException.Closed || !runCatching { remote.isConnected }.getOrDefault(false)
+            withMain {
+                if (lost) connectionLost = true
+                if (errorPrefix != null) message = "$errorPrefix: ${describe(e)}"
+            }
+        }
+    }
+
+    private suspend fun withMain(block: () -> Unit) = withContext(Dispatchers.Main.immediate) { block() }
+
+    companion object {
+        const val MAX_MEDIA_BYTES = 40L * 1024 * 1024
+
+        fun describe(e: Throwable): String = when (e) {
+            is CoreException -> e.message ?: e.javaClass.simpleName
+            else -> e.message ?: e.javaClass.simpleName
+        }
+    }
+}

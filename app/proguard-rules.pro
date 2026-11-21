@@ -1,0 +1,19 @@
+-keepattributes *Annotation*, InnerClasses, Signature
+-keep,includedescriptorclasses class app.jangkau.**$$serializer { *; }
+-keepclassmembers class app.jangkau.** { *** Companion; }
+-keepclasseswithmembers class app.jangkau.** { kotlinx.serialization.KSerializer serializer(...); }
+-keep class com.sun.jna.** { *; }
+-keep class * implements com.sun.jna.** { *; }
+-keep class app.jangkau.core.** { *; }
+-dontwarn java.awt.**
+-keep class io.github.rosemoe.sora.** { *; }
+-keep class org.eclipse.tm4e.** { *; }
+-keep class org.joni.** { *; }
+-keep class org.jcodings.** { *; }
+-dontwarn io.github.rosemoe.sora.**
+-dontwarn org.eclipse.tm4e.**
+-dontwarn org.jcodings.**
+-dontwarn org.joni.**
+-dontwarn javax.annotation.**
+-dontwarn org.jspecify.**
+-dontwarn com.google.errorprone.annotations.**
