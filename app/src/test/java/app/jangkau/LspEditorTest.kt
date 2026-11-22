@@ -83,7 +83,8 @@ class LspEditorTest {
         ed.text.delete(0, 0, 0, 7)
         ed.text.insert(0, 2, "\nimport sys")
         assertEquals(ed.text.toString(), server.texts[path])
-        assertEquals("change $path v4", server.log.last())
+        assertEquals("change $path v4", server.log.last { it.startsWith("change") })
+        assertTrue(server.log.none { it.startsWith("complete 0:0") })
     }
 
     @Test fun completionsAreOfferedAndApplied() {

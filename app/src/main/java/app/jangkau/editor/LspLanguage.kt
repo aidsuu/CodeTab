@@ -41,7 +41,7 @@ class LspLanguage(private val base: Language, private val doc: LspDocument) : La
         val line = position.line
         val start = position.column - prefix.length
         val before = if (start > 0) content.charAt(line, start - 1).toString() else ""
-        val trigger = before.takeIf { prefix.isEmpty() && doc.triggerCharacters.any { t -> t.endsWith(it) } }
+        val trigger = before.takeIf { it.isNotBlank() && prefix.isEmpty() && doc.triggerCharacters.any { t -> t.endsWith(it) } }
         if (prefix.isEmpty() && trigger == null) return null
         val cached = doc.cache?.takeIf { it.line == line && it.start == start && prefix.startsWith(it.prefix) && !it.result.incomplete }
         val result = cached?.result ?: doc.completion(line, position.column, trigger) { content.reference.toString() }
