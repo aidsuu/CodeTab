@@ -100,6 +100,10 @@ class UiPrefs(private val sp: SharedPreferences? = null) {
     private val termSize = mutableFloatStateOf(sp?.getFloat("termSp", 13f) ?: 13f)
     private val keepState = mutableStateOf(sp?.getBoolean("keepSessions", true) ?: true)
     private val echoState = mutableStateOf(sp?.getBoolean("predictiveEcho", true) ?: true)
+    private val lspState = mutableStateOf(sp?.getBoolean("languageServers", true) ?: true)
+    private val customServers = androidx.compose.runtime.mutableStateMapOf<String, String>().apply {
+        sp?.all?.forEach { (k, v) -> if (k.startsWith("lsp.") && v is String) put(k.removePrefix("lsp."), v) }
+    }
 
     var font: MonoFont
         get() = fontState.value
@@ -119,6 +123,17 @@ class UiPrefs(private val sp: SharedPreferences? = null) {
     var predictiveEcho: Boolean
         get() = echoState.value
         set(v) { echoState.value = v; sp?.edit()?.putBoolean("predictiveEcho", v)?.apply() }
+    var languageServers: Boolean
+        get() = lspState.value
+        set(v) { lspState.value = v; sp?.edit()?.putBoolean("languageServers", v)?.apply() }
+
+    fun customServer(lspId: String): String? = customServers[lspId]
+
+    fun setCustomServer(lspId: String, command: String?) {
+        val c = command?.trim().orEmpty()
+        if (c.isEmpty()) { customServers.remove(lspId); sp?.edit()?.remove("lsp.$lspId")?.apply() }
+        else { customServers[lspId] = c; sp?.edit()?.putString("lsp.$lspId", c)?.apply() }
+    }
 }
 
 @Composable

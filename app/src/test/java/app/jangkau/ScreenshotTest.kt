@@ -96,6 +96,29 @@ class ScreenshotTest {
         file("$root/Dockerfile", "FROM python:3.12\n")
         file("$root/Makefile", "all:\n")
         file("$root/pyproject.toml", "[project]\n")
+        execHandler = { cmd ->
+            when {
+                "__codetab_lsp__" in cmd -> app.jangkau.core.ExecResult(0, "__codetab_lsp__ pyright-langserver\n", "")
+                "while :; do for m in" in cmd -> app.jangkau.core.ExecResult(0, "$root\n", "")
+                else -> app.jangkau.core.ExecResult(0, "", "")
+            }
+        }
+        serverFactory = { _, _ ->
+            FakeLsp(app.jangkau.core.LspServerInfo("Pyright", "1.1", listOf("."), listOf("("), true, true, true, true, true))
+        }
+    }
+
+    private fun showProblems(ws: WorkspaceState) {
+        val server = (ws.remote as FakeRemote).servers.lastOrNull() ?: return
+        val lines = trainPy.lines()
+        val line = lines.indexOfFirst { "best = min" in it }
+        val col = lines[line].indexOf("loss")
+        fun p(l: Int, c: Int) = app.jangkau.core.LspPosition(l.toUInt(), c.toUInt())
+        server.listener!!.onDiagnostics(
+            "/home/user/climate-model/src/train.py",
+            listOf(app.jangkau.core.LspDiagnostic(app.jangkau.core.LspRange(p(line, col), p(line, col + 4)), 2u,
+                "\"loss\" is possibly unbound", "Pyright", "reportPossiblyUnbound")),
+        )
     }
 
     private fun workspace(scope: kotlinx.coroutines.CoroutineScope, panel: SidePanel): WorkspaceState {
@@ -119,6 +142,7 @@ class ScreenshotTest {
         ws.tabs += EditorTab("$root/jobs/train.slurm", "$root/jobs/train.slurm", "train.slurm", "#!/bin/bash\n", 1)
         ws.activeKey = tab.key
         ws.selectedPath = tab.path
+        ws.attachLsp(tab)
 
         val term = Terminal(150u, 14u)
         val esc = "\u001b"
@@ -147,6 +171,7 @@ class ScreenshotTest {
         compose.setContent {
             val scope = rememberCoroutineScope()
             val ws = androidx.compose.runtime.remember { workspace(scope, SidePanel.Explorer) }
+            androidx.compose.runtime.LaunchedEffect(ws.lsp.statusFor("python")) { showProblems(ws) }
             JangkauTheme { WorkspaceScreen(ws, onDisconnect = {}, onReconnect = {}) }
         }
         settle()

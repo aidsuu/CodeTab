@@ -80,6 +80,11 @@ class MainActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val ws = state.workspace
+        if (ws != null && event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_F12 &&
+            currentFocus !is app.jangkau.term.TerminalView) {
+            ws.goToDefinition()
+            return true
+        }
         if (ws != null && event.action == KeyEvent.ACTION_DOWN && event.isCtrlPressed) {
             val ch = when (event.keyCode) {
                 KeyEvent.KEYCODE_ENTER -> '\r'

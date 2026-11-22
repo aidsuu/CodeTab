@@ -1,6 +1,6 @@
 [package]
 name = "jangkau_core"
-version = "0.3.0"
+version = "0.4.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
@@ -25,6 +25,7 @@ russh = { version = "=0.65.1", default-features = false, features = ["ring", "rs
 russh-sftp = "=3.0.1"
 vt100 = "=0.16.2"
 getrandom = "0.4"
+serde_json = "1"
 
 [dev-dependencies]
 tempfile = "3"

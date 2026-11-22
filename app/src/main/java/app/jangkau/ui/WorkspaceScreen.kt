@@ -64,6 +64,8 @@ import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Start
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.TextDecrease
@@ -121,7 +123,13 @@ private val Gap = 10.dp
 fun WorkspaceScreen(ws: WorkspaceState, onDisconnect: () -> Unit, onReconnect: () -> Unit) {
     var ask by remember { mutableStateOf<Ask?>(null) }
     var confirmDelete by remember { mutableStateOf<RemoteEntry?>(null) }
+    var lspDialog by remember { mutableStateOf(false) }
+    var problems by remember { mutableStateOf(false) }
     val editors = remember { mutableMapOf<String, CodeEditor>() }
+
+    LaunchedEffect(ws.lsp.message) {
+        ws.lsp.message?.let { ws.message = it; ws.lsp.message = null }
+    }
 
     LaunchedEffect(ws.message) {
         if (ws.message != null) { delay(3500); ws.message = null }
@@ -150,8 +158,12 @@ fun WorkspaceScreen(ws: WorkspaceState, onDisconnect: () -> Unit, onReconnect: (
                 }
             }
         }
-        StatusBar(ws, onReconnect)
+        StatusBar(ws, onReconnect, onLsp = { lspDialog = true }, onProblems = { problems = true })
     }
+
+    HoverDialog(ws)
+    if (lspDialog) LanguageServerDialog(ws) { lspDialog = false }
+    if (problems) ProblemsDialog(ws) { problems = false }
 
     ws.message?.let { msg ->
         Box(Modifier.fillMaxSize().padding(bottom = 48.dp, end = 24.dp), contentAlignment = Alignment.BottomEnd) {
@@ -248,6 +260,16 @@ private fun SettingsMenu(ws: WorkspaceState, open: Boolean, onClose: () -> Unit)
             text = { Text(if (p.showHidden) "Hide dotfiles" else "Show dotfiles") },
             leadingIcon = { Icon(if (p.showHidden) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, null, Modifier.size(18.dp)) },
             onClick = { p.showHidden = !p.showHidden },
+        )
+        DropdownMenuItem(
+            text = {
+                Column {
+                    Text("Language servers")
+                    Text("Completion, problems, and definitions from servers such as pyright or clangd", style = Ide.small.copy(color = Ide.textDim))
+                }
+            },
+            leadingIcon = { if (p.languageServers) Icon(Icons.Outlined.Check, null, Modifier.size(18.dp)) else Spacer(Modifier.size(18.dp)) },
+            onClick = { p.languageServers = !p.languageServers; ws.lsp.restart(reprobe = true) },
         )
         HorizontalDivider(color = Ide.border)
         Text("CONNECTION", style = Ide.section, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
@@ -626,6 +648,10 @@ private fun EditorArea(ws: WorkspaceState, editors: MutableMap<String, CodeEdito
                         }
                     }
                 }
+                if (ws.lsp.statusFor(tab.lsp?.lspId) is app.jangkau.lsp.LspStatus.Ready) {
+                    SmallIcon(Icons.Outlined.Info, "Show info at cursor (Ctrl+I)") { ws.showHover() }
+                    SmallIcon(Icons.Outlined.Start, "Go to definition (F12)") { ws.goToDefinition() }
+                }
                 SmallIcon(Icons.Outlined.Save, "Save", enabled = !tab.readOnly && tab.dirty && !tab.saving) { ws.save(tab) }
                 SmallIcon(Icons.AutoMirrored.Outlined.Undo, "Undo", enabled = !tab.readOnly) { tab.undo?.invoke() }
                 SmallIcon(Icons.AutoMirrored.Outlined.Redo, "Redo", enabled = !tab.readOnly) { tab.redo?.invoke() }
@@ -648,19 +674,33 @@ private fun EditorArea(ws: WorkspaceState, editors: MutableMap<String, CodeEdito
                 val ctx = LocalContext.current
                 val font = ws.prefs.font
                 androidx.compose.runtime.key(tab.key) {
+                  Box(Modifier.fillMaxSize()) {
                     AndroidView(
                         factory = {
                             val ed = editors.getOrPut(tab.key) {
                                 EditorSupport.create(
                                     ctx, tab.title, tab.initialText, tab.readOnly, ws.editorTextSp, font.typeface(ctx),
                                     onChanged = { tab.dirty = true },
-                                    onCursor = { l, c -> tab.cursorLine = l; tab.cursorCol = c },
-                                )
+                                    onCursor = { l, c -> tab.cursorLine = l; tab.cursorCol = c; ws.onCursorMoved(tab, l) },
+                                    lsp = tab.lsp,
+                                    onSignature = { typed, l, c -> ws.onTyped(tab, typed, l, c) },
+                                ).also { ed -> ws.lsp.diagnostics[tab.path]?.let { d -> tab.lsp?.onDiagnostics?.invoke(d) } }
                             }
                             (ed.parent as? ViewGroup)?.removeView(ed)
                             tab.currentText = { ed.text.toString() }
                             tab.undo = { ed.undo() }
                             tab.redo = { ed.redo() }
+                            tab.jumpTo = { l, c ->
+                                val line = l.coerceIn(0, ed.text.lineCount - 1)
+                                val col = c.coerceIn(0, ed.text.getColumnCount(line))
+                                ed.setSelection(line, col)
+                                ed.ensurePositionVisible(line, col)
+                                ed.requestFocus()
+                            }
+                            tab.requestCompletion = {
+                                runCatching { ed.getComponent(io.github.rosemoe.sora.widget.component.EditorAutoCompletion::class.java).requireCompletion() }
+                            }
+                            tab.initialJump?.let { (l, c) -> tab.initialJump = null; ed.post { tab.jumpTo?.invoke(l, c) } }
                             ed
                         },
                         update = { ed ->
@@ -670,6 +710,10 @@ private fun EditorArea(ws: WorkspaceState, editors: MutableMap<String, CodeEdito
                         },
                         modifier = Modifier.fillMaxSize().padding(start = 6.dp, bottom = 8.dp),
                     )
+                    if (ws.signature != null) {
+                        Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp)) { SignatureStrip(ws) }
+                    }
+                  }
                 }
             }
         }
@@ -829,7 +873,7 @@ private fun ExtraKeys(term: TermTab, view: TerminalView?) {
 }
 
 @Composable
-private fun StatusBar(ws: WorkspaceState, onReconnect: () -> Unit) {
+private fun StatusBar(ws: WorkspaceState, onReconnect: () -> Unit, onLsp: () -> Unit, onProblems: () -> Unit) {
     val lost = ws.connectionLost
     Row(
         Modifier.fillMaxWidth().height(36.dp).padding(horizontal = 4.dp),
@@ -855,6 +899,8 @@ private fun StatusBar(ws: WorkspaceState, onReconnect: () -> Unit) {
             }
         }
         Spacer(Modifier.weight(1f))
+        ProblemCounts(ws, onProblems)
+        LspStatusItem(ws, onLsp)
         ws.activeTab?.let { t ->
             if (t.viewer == null) {
                 Text("Ln ${t.cursorLine}, Col ${t.cursorCol}", style = dim)

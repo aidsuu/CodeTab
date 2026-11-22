@@ -1,14 +1,32 @@
 package app.jangkau.editor
 
 object Languages {
-    data class Lang(val scope: String?, val label: String, val badge: String, val color: Long)
+    data class Lang(val scope: String?, val label: String, val badge: String, val color: Long, val lspId: String? = null)
 
     private class Type(val lang: Lang, val extensions: List<String>, val names: List<String>)
 
     private fun type(scope: String, label: String, badge: String, color: Long, ext: String, names: String = "") =
-        Type(Lang(scope, label, badge, color), ext.split(' ').filter { it.isNotEmpty() }, names.split(' ').filter { it.isNotEmpty() })
+        Type(Lang(scope, label, badge, color, lspIds[scope]), ext.split(' ').filter { it.isNotEmpty() }, names.split(' ').filter { it.isNotEmpty() })
 
     val PlainText = Lang(null, "Plain Text", "txt", 0xFF8A8A8A)
+
+    private val lspIds = mapOf(
+        "source.python" to "python", "source.shell" to "shellscript", "source.json" to "json",
+        "source.json.comments" to "jsonc", "source.yaml" to "yaml", "source.toml" to "toml", "source.ini" to "ini",
+        "text.html.markdown" to "markdown", "source.rst" to "restructuredtext", "text.tex.latex" to "latex",
+        "text.tex" to "tex", "text.bibtex" to "bibtex", "text.html.derivative" to "html", "source.css" to "css",
+        "source.css.scss" to "scss", "source.css.less" to "less", "source.js" to "javascript",
+        "source.js.jsx" to "javascriptreact", "source.ts" to "typescript", "source.tsx" to "typescriptreact",
+        "text.html.php" to "php", "text.xml" to "xml", "text.xml.xsl" to "xsl", "text.html.handlebars" to "handlebars",
+        "text.pug" to "jade", "source.coffee" to "coffeescript", "source.c" to "c", "source.cpp" to "cpp",
+        "source.cuda-cpp" to "cuda-cpp", "source.cs" to "csharp", "source.java" to "java", "source.kotlin" to "kotlin",
+        "source.groovy" to "groovy", "source.go" to "go", "source.rust" to "rust", "source.swift" to "swift",
+        "source.objc" to "objective-c", "source.objcpp" to "objective-cpp", "source.dart" to "dart",
+        "source.fsharp" to "fsharp", "source.asp.vb.net" to "vb", "source.ruby" to "ruby", "source.perl" to "perl",
+        "source.lua" to "lua", "source.r" to "r", "source.julia" to "julia", "source.clojure" to "clojure",
+        "source.powershell" to "powershell", "source.batchfile" to "bat", "source.sql" to "sql",
+        "source.makefile" to "makefile", "source.dockerfile" to "dockerfile",
+    )
 
     private val types = listOf(
         type("source.python", "Python", "py", 0xFF4B8BBE, "py pyw pyi pyx rpy gyp gypi ipy", "SConstruct SConscript"),

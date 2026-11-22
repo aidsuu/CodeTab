@@ -309,3 +309,388 @@ fn closed_port_gives_clear_error() {
     .unwrap();
     assert!(err.to_string().contains("refused"), "{err}");
 }
+
+#[derive(Default)]
+struct LspEvents {
+    diagnostics: Mutex<Vec<(String, Vec<LspDiagnostic>)>>,
+    messages: Mutex<Vec<String>>,
+    progress: Mutex<Vec<Option<String>>>,
+    exit: Mutex<Option<String>>,
+}
+
+struct LspL(Arc<LspEvents>);
+impl LspListener for LspL {
+    fn on_diagnostics(&self, path: String, diagnostics: Vec<LspDiagnostic>) {
+        self.0.diagnostics.lock().unwrap().push((path, diagnostics));
+    }
+    fn on_progress(&self, message: Option<String>) {
+        self.0.progress.lock().unwrap().push(message);
+    }
+    fn on_message(&self, _severity: u8, message: String) {
+        self.0.messages.lock().unwrap().push(message);
+    }
+    fn on_exit(&self, message: String) {
+        *self.0.exit.lock().unwrap() = Some(message);
+    }
+}
+
+fn until(mut f: impl FnMut() -> bool) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(20) {
+        if f() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    false
+}
+
+fn plain_session(port: u16, user: &str, key: &str, dir: &str, name: &str) -> Arc<Session> {
+    Session::connect(
+        ConnectConfig {
+            target: hop("127.0.0.1", port, user, key),
+            jump: None,
+            known_hosts_file: format!("{dir}/kh_{name}"),
+            timeout_secs: 20,
+        },
+        Box::new(Listener {
+            prompts: Arc::new(AtomicUsize::new(0)),
+            accept: true,
+        }),
+    )
+    .unwrap()
+}
+
+#[test]
+fn language_server_over_ssh() {
+    let Some((port, user, key, dir)) = env() else {
+        return;
+    };
+    let s = plain_session(port, &user, &key, &dir, "lsp");
+    let root = format!("{dir}/lsp project");
+    std::fs::create_dir_all(&root).unwrap();
+    let file = format!("{root}/main.py");
+    let text = "greeting = 1\ngreet";
+    std::fs::write(&file, text).unwrap();
+    let server_py = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_lsp.py");
+
+    let events = Arc::new(LspEvents::default());
+    let ls = s
+        .start_language_server(
+            lsp_launch_command(
+                format!("python3 {}", sh_quote(server_py.into())),
+                root.clone(),
+                None,
+            ),
+            root.clone(),
+            r#"{"fake": {"option": 42}}"#.into(),
+            "null".into(),
+            30,
+            false,
+            Box::new(LspL(events.clone())),
+        )
+        .unwrap();
+    let info = ls.info();
+    assert_eq!(info.name, "fake-lsp");
+    assert!(info.incremental_sync && info.hover && info.definition && info.signature_help);
+    assert_eq!(info.trigger_characters, vec!["."]);
+    assert!(until(|| events
+        .messages
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|m| m == "config [42]")));
+    assert!(until(
+        || events.progress.lock().unwrap().last() == Some(&None)
+    ));
+    assert!(ls.stderr_tail().contains("lsp project"));
+
+    ls.did_open(file.clone(), "python".into(), 1, text.into())
+        .unwrap();
+    assert!(until(|| events
+        .diagnostics
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(p, _)| *p == file)));
+
+    let c = ls.completion(file.clone(), 1, 5, None, 5000).unwrap();
+    let item = c
+        .items
+        .iter()
+        .find(|i| i.label == "greeting")
+        .expect("greeting suggested");
+    assert_eq!(item.edit_range.unwrap().start.character, 0);
+    assert!(c
+        .items
+        .iter()
+        .any(|i| i.snippet && i.insert_text == "snippet(${1:arg})$0"));
+
+    ls.did_change(
+        file.clone(),
+        2,
+        vec![LspChange {
+            range: Some(LspRange {
+                start: LspPosition {
+                    line: 1,
+                    character: 0,
+                },
+                end: LspPosition {
+                    line: 1,
+                    character: 0,
+                },
+            }),
+            text: "# TODO ".into(),
+        }],
+    )
+    .unwrap();
+    assert!(until(|| {
+        events
+            .diagnostics
+            .lock()
+            .unwrap()
+            .last()
+            .is_some_and(|(_, d)| {
+                d.len() == 1
+                    && d[0].range.start
+                        == LspPosition {
+                            line: 1,
+                            character: 2,
+                        }
+                    && d[0].severity == 2
+            })
+    }));
+    let hover = ls.hover(file.clone(), 1, 3, 5000).unwrap().unwrap();
+    assert_eq!(hover, "Line: `# TODO greet`");
+    let def = ls.definition(file.clone(), 1, 8, 5000).unwrap();
+    assert_eq!(def[0].path, file);
+    let sig = ls
+        .signature_help(file.clone(), 1, 8, 5000)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        &sig.label[sig.active_start.unwrap() as usize..sig.active_end.unwrap() as usize],
+        "times"
+    );
+
+    ls.did_save(file.clone(), String::new()).unwrap();
+    ls.did_close(file.clone()).unwrap();
+    ls.shutdown();
+    assert!(until(|| events.exit.lock().unwrap().is_some()));
+    assert!(!ls.is_alive());
+    assert!(matches!(ls.hover(file, 0, 0, 1000), Err(CoreError::Closed)));
+
+    let events = Arc::new(LspEvents::default());
+    let err = s
+        .start_language_server(
+            lsp_launch_command("no-such-language-server --stdio".into(), root.clone(), None),
+            root,
+            "null".into(),
+            "null".into(),
+            10,
+            false,
+            Box::new(LspL(events)),
+        )
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(
+        err.contains("stopped during startup") && err.contains("not found"),
+        "{err}"
+    );
+    s.disconnect();
+}
+
+/// Talks to every real language server installed on the test machine. Run with
+/// `CODETAB_LSP_REAL=1 scripts/e2e-sshd.sh real_language_servers`.
+#[test]
+fn real_language_servers() {
+    let Some((port, user, key, dir)) = env() else {
+        return;
+    };
+    if std::env::var("CODETAB_LSP_REAL").is_err() {
+        return;
+    }
+    let s = plain_session(port, &user, &key, &dir, "real");
+    let servers = language_servers();
+    let bins: Vec<String> = servers.iter().map(|s| s.binary.clone()).collect();
+    let mut probe = parse_lsp_probe(
+        s.exec(lsp_probe_command(bins, Some("python3".into())), 60)
+            .unwrap()
+            .stdout,
+    );
+    let extra = std::env::var("CODETAB_LSP_PATH").unwrap_or_default();
+    let mut ours = Vec::new();
+    for d in extra.split(':').filter(|d| !d.is_empty()) {
+        for spec in &servers {
+            if std::path::Path::new(d).join(&spec.binary).exists() {
+                ours.push(spec.binary.clone());
+                if !probe.binaries.contains(&spec.binary) {
+                    probe.binaries.push(spec.binary.clone());
+                }
+            }
+        }
+    }
+    let mut failed = Vec::new();
+    let mut worked: Vec<String> = Vec::new();
+    eprintln!(
+        "installed: {:?}, python: {:?}",
+        probe.binaries, probe.python
+    );
+    let samples: &[(&str, &str, &str, &str)] = &[
+        ("python", "main.py", "import os\nos.pa", "path"),
+        (
+            "c",
+            "main.c",
+            "#include <stdio.h>\nint main(void) { pri",
+            "printf",
+        ),
+        (
+            "rust",
+            "src/main.rs",
+            "fn main() {\n    let v: Vec<u8> = Vec::new();\n    v.le",
+            "len",
+        ),
+        (
+            "go",
+            "main.go",
+            "package main\n\nimport \"strings\"\n\nfunc main() { strings.ToUp",
+            "ToUpper",
+        ),
+        (
+            "typescript",
+            "main.ts",
+            "const s = \"x\";\ns.toUpper",
+            "toUpperCase",
+        ),
+        ("javascript", "main.js", "const a = [1];\na.pu", "push"),
+        ("css", "style.css", "body { colo", "color"),
+        ("html", "index.html", "<html><bo", "body"),
+        ("json", "package.json", "{\n  \"scr", "scripts"),
+        ("shellscript", "run.sh", "#!/bin/bash\nech", "echo"),
+        ("yaml", "a.yaml", "key: value\n", ""),
+        ("dockerfile", "Dockerfile", "FROM debian\nRU", "RUN"),
+        ("php", "index.php", "<?php\n$x = str_rep", "str_replace"),
+        (
+            "latex",
+            "doc.tex",
+            "\\documentclass{article}\n\\beg",
+            "begin",
+        ),
+    ];
+    let mut tried = 0;
+    for spec in &servers {
+        if !probe.binaries.contains(&spec.binary) {
+            continue;
+        }
+        if std::env::var("CODETAB_LSP_ONLY").is_ok_and(|o| o != spec.id) {
+            continue;
+        }
+        let Some((lang, name, text, expect)) = samples
+            .iter()
+            .find(|(l, ..)| spec.languages.iter().any(|x| x == l))
+        else {
+            continue;
+        };
+        tried += 1;
+        let root = format!("{dir}/real-{}", spec.id);
+        let path = format!("{root}/{name}");
+        std::fs::create_dir_all(std::path::Path::new(&path).parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        if spec.id == "rust-analyzer" {
+            std::fs::write(
+                format!("{root}/Cargo.toml"),
+                "[package]\nname = \"t\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+            )
+            .unwrap();
+        }
+        if spec.id == "gopls" {
+            std::fs::write(format!("{root}/go.mod"), "module t\n\ngo 1.21\n").unwrap();
+        }
+        let cfg = lsp_server_config(spec.id.clone(), probe.python.clone());
+        let events = Arc::new(LspEvents::default());
+        let started = Instant::now();
+        let ls = match s.start_language_server(
+            lsp_launch_command(
+                format!("PATH=\"{extra}:$PATH\"; {}", spec.command),
+                root.clone(),
+                probe.python.clone(),
+            ),
+            root.clone(),
+            cfg.settings_json,
+            cfg.init_options_json,
+            spec.init_timeout_secs,
+            spec.wait_for_index,
+            Box::new(LspL(events.clone())),
+        ) {
+            Ok(ls) => ls,
+            Err(e) => {
+                eprintln!("{:>14}: could not start: {e}", spec.id);
+                if ours.contains(&spec.binary) {
+                    failed.push(spec.id.clone());
+                }
+                continue;
+            }
+        };
+        ls.did_open(path.clone(), lang.to_string(), 1, text.to_string())
+            .unwrap();
+        let last = text.lines().last().unwrap_or("");
+        let (line, col) = (
+            text.lines().count().saturating_sub(1) as u32,
+            last.encode_utf16().count() as u32,
+        );
+        let mut labels = Vec::new();
+        for _ in 0..20 {
+            let c = ls
+                .completion(path.clone(), line, col, None, 20000)
+                .unwrap_or_else(|e| {
+                    eprintln!("{:>14}: completion failed: {e}", spec.id);
+                    LspCompletion {
+                        incomplete: true,
+                        items: vec![],
+                    }
+                });
+            labels = c
+                .items
+                .iter()
+                .map(|i| i.label.trim().to_string())
+                .collect::<Vec<_>>();
+            if expect.is_empty() || labels.iter().any(|l| l.contains(expect)) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1000));
+        }
+        eprintln!(
+            "{:>14}: {} items in {:.1}s, sample {:?}",
+            spec.id,
+            labels.len(),
+            started.elapsed().as_secs_f32(),
+            labels.iter().take(4).collect::<Vec<_>>()
+        );
+        if !expect.is_empty() && !labels.iter().any(|l| l.contains(expect)) {
+            eprintln!(
+                "{:>14}: no {expect}; alive {} exit {:?} messages {:?}\n{}",
+                spec.id,
+                ls.is_alive(),
+                events.exit.lock().unwrap(),
+                events.messages.lock().unwrap(),
+                ls.stderr_tail()
+            );
+            failed.push(spec.id.clone());
+        } else {
+            worked.push(spec.id.clone());
+        }
+        ls.shutdown();
+    }
+    failed.retain(|id| {
+        let langs = &servers.iter().find(|s| s.id == *id).unwrap().languages;
+        !worked.iter().any(|w| {
+            servers
+                .iter()
+                .any(|s| s.id == *w && s.languages.iter().any(|l| langs.contains(l)))
+        })
+    });
+    eprintln!("tried {tried} real servers");
+    assert!(failed.is_empty(), "failed: {failed:?}");
+    s.disconnect();
+}

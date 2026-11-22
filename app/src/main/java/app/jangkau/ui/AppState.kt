@@ -112,6 +112,7 @@ class AppState(
         reconnectJob?.cancel()
         monitorJob?.cancel()
         ws.onConnectionLost = null
+        ws.lsp.shutdownAll()
         scope.launch(io) { runCatching { ws.remote.close() } }
     }
 

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-22
+
+### Added
+
+- Language server support. CodeTab starts a language server on the remote machine for the open file and uses it for completion, errors and warnings, documentation at the cursor, parameter hints, and go to definition. About 40 servers are recognized, covering Python, C and C++, Rust, Go, JavaScript and TypeScript, web languages, Java, Kotlin, C#, PHP, Ruby, R, Julia, LaTeX, and more.
+- Installed servers are detected automatically. If one fails to start, the next one for the language is tried. A dialog shows the install command for missing servers and accepts a custom server command.
+- Python servers use the interpreter from the host profile, including Conda environments.
+- Problem counts and the server state in the status bar, and a list of problems that jumps to each one.
+- Shortcuts `Ctrl+Space` for completion, `Ctrl+I` for documentation, and `F12` for go to definition.
+- A setting to turn language servers off.
+
 ## [0.3.0] - 2026-11-21
 
 ### Added
@@ -73,7 +84,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Running Python and shell files and submitting SLURM jobs.
 - Git panel with status, staging, commit, pull, push, fetch, and diffs.
 
-[Unreleased]: https://github.com/aidsuu/CodeTab/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/aidsuu/CodeTab/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/aidsuu/CodeTab/releases/tag/v0.4.0
 [0.3.0]: https://github.com/aidsuu/CodeTab/releases/tag/v0.3.0
 [0.2.3]: https://github.com/aidsuu/CodeTab/releases/tag/v0.2.3
 [0.2.2]: https://github.com/aidsuu/CodeTab/releases/tag/v0.2.2

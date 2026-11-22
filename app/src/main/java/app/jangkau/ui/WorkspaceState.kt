@@ -29,7 +29,10 @@ import app.jangkau.core.parseTmuxProbe
 import app.jangkau.core.tmuxAttachCommand
 import app.jangkau.core.tmuxKillCommand
 import app.jangkau.core.tmuxProbeCommand
+import app.jangkau.core.LspSignature
 import app.jangkau.editor.Languages
+import app.jangkau.lsp.LanguageServices
+import app.jangkau.lsp.LspDocument
 import app.jangkau.model.HostProfile
 import app.jangkau.remote.Remote
 import app.jangkau.remote.combined
@@ -65,6 +68,10 @@ class EditorTab(
     var undo: (() -> Unit)? = null
     var redo: (() -> Unit)? = null
     var saving by mutableStateOf(false)
+    var lsp: LspDocument? = null
+    var initialJump: Pair<Int, Int>? = null
+    var jumpTo: ((line: Int, col: Int) -> Unit)? = null
+    var requestCompletion: (() -> Unit)? = null
 
     fun text(): String = currentText?.invoke() ?: initialText
 }
@@ -185,6 +192,14 @@ class WorkspaceState(
         set(v) { prefs.editorTextSp = v }
     var filter by mutableStateOf("")
     val git = GitState()
+    val lsp = LanguageServices(
+        remote = { this.remote }, scope = scope, io = io,
+        enabled = { prefs.languageServers }, customCommand = { prefs.customServer(it) },
+        workspaceRoot = { root }, pythonCommand = profile.pythonCmd,
+    )
+    var hover by mutableStateOf<String?>(null)
+    var signature by mutableStateOf<LspSignature?>(null)
+    private var signatureLine = -1
 
     private fun visible(e: RemoteEntry) = prefs.showHidden || !e.name.startsWith(".")
 
@@ -241,6 +256,7 @@ class WorkspaceState(
         terminals.forEach { if (it !in keep && it.exited == null) it.exited = "Previous connection lost" }
         scope.launch(io) { runCatching { old.close() } }
         refreshAll()
+        lsp.restart()
         keep.forEach { tab ->
             val listener = tab.nextListener()
             val size = tab.terminal.size()
@@ -360,8 +376,12 @@ class WorkspaceState(
         withMain { children[dir] = list }
     }
 
-    fun open(path: String) {
-        tabs.firstOrNull { it.key == path }?.let { activeKey = it.key; return }
+    fun open(path: String, jump: Pair<Int, Int>? = null) {
+        tabs.firstOrNull { it.key == path }?.let { t ->
+            activeKey = t.key
+            if (jump != null) t.jumpTo?.invoke(jump.first, jump.second) ?: run { t.initialJump = jump }
+            return
+        }
         val viewer = Languages.viewer(pathName(path))
         if (viewer != null) { openMedia(path, viewer); return }
         launchIo("Could not open the file") {
@@ -371,8 +391,10 @@ class WorkspaceState(
             val text = bytes.toString(Charsets.UTF_8)
             withMain {
                 val tab = EditorTab(path, path, pathName(path), text, st?.mtime?.toLong() ?: 0L)
+                tab.initialJump = jump
                 tabs += tab
                 activeKey = tab.key
+                attachLsp(tab)
             }
         }
     }
@@ -399,6 +421,57 @@ class WorkspaceState(
         activeKey = key
     }
 
+    internal fun attachLsp(tab: EditorTab) {
+        if (tab.readOnly || tab.viewer != null) return
+        val id = Languages.forName(tab.title).lspId ?: return
+        val doc = LspDocument(tab.path, id).also { it.text = { tab.text() } }
+        tab.lsp = doc
+        lsp.attach(doc)
+    }
+
+    private fun detachLsp(tab: EditorTab) {
+        if (tab.lsp != null) lsp.detach(tab.path)
+        tab.lsp = null
+        if (activeKey == tab.key) signature = null
+    }
+
+    fun showHover() {
+        val tab = activeTab ?: return
+        val doc = tab.lsp ?: run { hover = "No language server for this file"; return }
+        val (line, col) = tab.cursorLine - 1 to tab.cursorCol - 1
+        scope.launch(Dispatchers.Main.immediate) {
+            hover = lsp.hover(doc, line, col) ?: "No information at the cursor"
+        }
+    }
+
+    fun goToDefinition() {
+        val tab = activeTab ?: return
+        val doc = tab.lsp ?: return
+        val (line, col) = tab.cursorLine - 1 to tab.cursorCol - 1
+        scope.launch(Dispatchers.Main.immediate) {
+            val loc = lsp.definition(doc, line, col).firstOrNull()
+            if (loc == null) { message = "No definition found"; return@launch }
+            val target = loc.range.start.line.toInt() to loc.range.start.character.toInt()
+            if (loc.path == tab.path) tab.jumpTo?.invoke(target.first, target.second)
+            else open(loc.path, target)
+        }
+    }
+
+    fun onTyped(tab: EditorTab, typed: String, line: Int, col: Int) {
+        val doc = tab.lsp ?: return
+        if (typed == ")") { signature = null; return }
+        if (typed !in doc.signatureTriggers && signature == null) return
+        signatureLine = line
+        scope.launch(Dispatchers.Main.immediate) {
+            val sig = lsp.signature(doc, line, col)
+            if (activeKey == tab.key && signatureLine == line) signature = sig
+        }
+    }
+
+    fun onCursorMoved(tab: EditorTab, line: Int) {
+        if (signature != null && (activeKey != tab.key || line - 1 != signatureLine)) signature = null
+    }
+
     fun closeTab(tab: EditorTab, force: Boolean = false) {
         tab.file?.takeIf { f -> tabs.none { it !== tab && it.file == f } }?.delete()
         if (tab.dirty && !force) {
@@ -407,6 +480,7 @@ class WorkspaceState(
             return
         }
         val i = tabs.indexOf(tab)
+        detachLsp(tab)
         tabs.remove(tab)
         if (activeKey == tab.key) activeKey = tabs.getOrNull(i.coerceAtMost(tabs.size - 1))?.key
     }
@@ -421,9 +495,11 @@ class WorkspaceState(
                 withMain { saveConflict = SaveConflict(tab) }
                 return@launchIo
             }
-            remote.write(tab.path, tab.text().toByteArray(Charsets.UTF_8))
+            val saved = tab.text()
+            remote.write(tab.path, saved.toByteArray(Charsets.UTF_8))
             val after = remote.stat(tab.path)?.mtime?.toLong() ?: 0L
             withMain {
+                lsp.saved(tab.path, saved)
                 tab.mtime = after
                 tab.dirty = false
                 message = "Saved ${tab.title}"
@@ -433,6 +509,7 @@ class WorkspaceState(
     }
 
     fun reloadFromRemote(tab: EditorTab) {
+        detachLsp(tab)
         tabs.remove(tab)
         if (activeKey == tab.key) activeKey = null
         open(tab.path)
@@ -509,6 +586,11 @@ class WorkspaceState(
     private fun withTerminal(action: (TermTab) -> Unit) {
         val t = terminals.getOrNull(activeTerminal)?.takeIf { it.exited == null }
         if (t != null) action(t) else newTerminal(then = action)
+    }
+
+    fun typeInTerminal(text: String) {
+        terminalVisible = true
+        withTerminal { it.paste(text) }
     }
 
     fun cdInTerminal(dir: String) {
@@ -590,6 +672,8 @@ class WorkspaceState(
         if (!ctrl) return false
         when {
             key == 's' -> save()
+            key == ' ' -> activeTab?.requestCompletion?.invoke()
+            key == 'i' -> showHover()
             key == '`' || key == 'j' -> terminalVisible = !terminalVisible
             key == 'b' -> sidebarVisible = !sidebarVisible
             key == 'w' -> activeTab?.let { closeTab(it) }

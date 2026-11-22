@@ -9,7 +9,7 @@ pub struct TmuxInfo {
     pub sessions: Vec<String>,
 }
 
-fn login_shell(script: &str) -> String {
+pub(crate) fn login_shell(script: &str) -> String {
     format!("exec \"${{SHELL:-/bin/sh}}\" -lc {}", quote(script))
 }
 

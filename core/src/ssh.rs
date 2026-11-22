@@ -1,6 +1,7 @@
 use crate::error::CoreError;
 use crate::keys::decode;
 use crate::known_hosts::{known_hosts_check, known_hosts_trust, HostKeyCheck};
+use crate::lsp::{Incoming, LanguageServer, LspIo, LspListener, LspStart, Outbound};
 use crate::paths::{join, quote};
 use crate::runtime::rt;
 use crate::term::{Outgoing, Terminal, TerminalListener};
@@ -547,6 +548,82 @@ impl Session {
                 listener.on_exit(msg);
             });
             Ok(term)
+        })
+    }
+
+    /// Starts a language server with `command` (see `lsp_launch_command`) and runs the
+    /// LSP `initialize` handshake.
+    pub fn start_language_server(
+        &self,
+        command: String,
+        root: String,
+        settings_json: String,
+        init_options_json: String,
+        init_timeout_secs: u32,
+        wait_for_index: bool,
+        listener: Box<dyn LspListener>,
+    ) -> Result<Arc<LanguageServer>, CoreError> {
+        let listener: Arc<dyn LspListener> = Arc::from(listener);
+        let parse = |s: &str| serde_json::from_str(s).unwrap_or(serde_json::Value::Null);
+        let start = LspStart {
+            root,
+            settings: parse(&settings_json),
+            init_options: parse(&init_options_json),
+            init_timeout: Duration::from_secs(init_timeout_secs.max(5) as u64),
+            wait_for_index,
+        };
+        rt().block_on(async {
+            let ch = self.handle.lock().await.channel_open_session().await?;
+            ch.exec(true, command).await?;
+            let (mut reader, writer) = ch.split();
+            let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<Outbound>();
+            let (in_tx, in_rx) = tokio::sync::mpsc::unbounded_channel::<Incoming>();
+            rt().spawn(async move {
+                while let Some(msg) = out_rx.recv().await {
+                    match msg {
+                        Outbound::Frame(bytes) => {
+                            if writer.data_bytes(bytes).await.is_err() {
+                                break;
+                            }
+                        }
+                        Outbound::Close => {
+                            let _ = writer.eof().await;
+                            let _ = writer.close().await;
+                            break;
+                        }
+                    }
+                }
+            });
+            rt().spawn(async move {
+                loop {
+                    let msg = match reader.wait().await {
+                        Some(ChannelMsg::Data { data }) => Incoming::Stdout(data.to_vec()),
+                        Some(ChannelMsg::ExtendedData { data, .. }) => {
+                            Incoming::Stderr(data.to_vec())
+                        }
+                        Some(ChannelMsg::ExitStatus { exit_status }) => {
+                            Incoming::Exit(Some(exit_status))
+                        }
+                        Some(ChannelMsg::Close) | None => {
+                            let _ = in_tx.send(Incoming::Closed);
+                            break;
+                        }
+                        Some(_) => continue,
+                    };
+                    if in_tx.send(msg).is_err() {
+                        break;
+                    }
+                }
+            });
+            LanguageServer::start(
+                LspIo {
+                    out: out_tx,
+                    incoming: in_rx,
+                },
+                start,
+                listener,
+            )
+            .await
         })
     }
 
