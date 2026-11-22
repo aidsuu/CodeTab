@@ -75,6 +75,7 @@ class LspEditorTest {
             onChanged = {}, onCursor = { _, _ -> }, lsp = tab.lsp,
         )
         tab.currentText = { ed.text.toString() }
+        waitFor("highlighting") { ed.styles != null }
     }
 
     @Test fun editsAreSentWithLspPositions() {
