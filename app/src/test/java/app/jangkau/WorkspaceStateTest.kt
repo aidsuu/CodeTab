@@ -195,10 +195,34 @@ class WorkspaceStateTest {
         assertTrue(ws.tmuxAvailable)
 
         ws.newTerminal(); advanceUntilIdle()
-        assertEquals("codetab-6", ws.terminals.last().tmuxSession)
+        assertEquals("codetab-1", ws.terminals.last().tmuxSession)
         ws.closeTerminal(ws.terminals.last()); advanceUntilIdle()
-        assertTrue(remote.commands.any { "kill-session -t =codetab-6" in it })
+        assertTrue(remote.commands.any { "kill-session -t =codetab-1" in it })
         assertEquals(2, ws.terminals.size)
+    }
+
+    @Test fun terminalNumbersReuseTheLowestFreeSlot() = scope.runTest {
+        withTmux(remote, sessions = "")
+        ws.ensureTerminal(); advanceUntilIdle()
+        ws.newTerminal(); advanceUntilIdle()
+        assertEquals(listOf("bash 1", "bash 2"), ws.terminals.map { it.title })
+        ws.closeTerminal(ws.terminals.first()); advanceUntilIdle()
+        ws.newTerminal(); advanceUntilIdle()
+        assertEquals(listOf("bash 2", "bash 1"), ws.terminals.map { it.title })
+        assertEquals("codetab-1", ws.terminals.last().tmuxSession)
+    }
+
+    @Test fun tabClosedWhileOfflineIsKilledAfterReconnect() = scope.runTest {
+        withTmux(remote, sessions = "")
+        ws.ensureTerminal(); advanceUntilIdle()
+        ws.markLost()
+        ws.closeTerminal(ws.terminals.single()); advanceUntilIdle()
+        assertFalse(remote.commands.any { "kill-session" in it })
+
+        val next = FakeRemote()
+        withTmux(next, sessions = "")
+        ws.replaceRemote(next); advanceUntilIdle()
+        assertTrue(next.commands.any { "kill-session -t =codetab-1" in it })
     }
 
     @Test fun plainShellWhenTmuxIsMissingOrDisabled() = scope.runTest {

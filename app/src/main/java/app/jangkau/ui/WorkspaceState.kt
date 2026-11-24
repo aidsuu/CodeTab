@@ -173,7 +173,14 @@ class WorkspaceState(
     var terminalMaximized by mutableStateOf(false)
     val terminals = mutableStateListOf<TermTab>()
     var activeTerminal by mutableIntStateOf(0)
-    private var nextTermId = 1
+    /** tmux sessions whose tab was closed while offline, killed after the next reconnect */
+    private val orphanSessions = mutableListOf<String>()
+
+    /** lowest number not used by an open terminal, so a fresh login starts again at "bash 1" */
+    private fun freeTermId(): Int {
+        val used = terminals.map { it.id }.toSet()
+        return generateSequence(1) { it + 1 }.first { it !in used }
+    }
 
     var message by mutableStateOf<String?>(null)
     var saveConflict by mutableStateOf<SaveConflict?>(null)
@@ -255,6 +262,8 @@ class WorkspaceState(
         val keep = terminals.filter { it.tmuxSession != null && !it.endedCleanly }
         terminals.forEach { if (it !in keep && it.exited == null) it.exited = "Previous connection lost" }
         scope.launch(io) { runCatching { old.close() } }
+        val orphans = orphanSessions.toList().also { orphanSessions.clear() }
+        if (orphans.isNotEmpty()) launchIo(null) { orphans.forEach { newRemote.exec(tmuxKillCommand(it), 15) } }
         refreshAll()
         lsp.restart()
         keep.forEach { tab ->
@@ -535,11 +544,11 @@ class WorkspaceState(
                     val id = name.removePrefix(TMUX_PREFIX).toIntOrNull() ?: continue
                     if (withMain { terminals.any { it.tmuxSession == name } }) continue
                     val tab = openTab(id, name, cols, rows)
-                    withMain { nextTermId = maxOf(nextTermId, id + 1); addTerminal(tab) }
+                    withMain { addTerminal(tab) }
                 }
             }
             if (fresh || withMain { terminals.isEmpty() }) {
-                val id = withMain { nextTermId++ }
+                val id = withMain { freeTermId() }
                 val session = if (tmuxAvailable && prefs.keepSessions) "$TMUX_PREFIX$id" else null
                 val tab = openTab(id, session, cols, rows)
                 withMain { addTerminal(tab); then?.invoke(tab) }
@@ -573,14 +582,16 @@ class WorkspaceState(
     }
 
     fun attachTerminal(t: Terminal, title: String): TermTab =
-        TermTab(nextTermId++, t).also { it.title = title; terminals += it; activeTerminal = terminals.size - 1 }
+        TermTab(freeTermId(), t).also { it.title = title; terminals += it; activeTerminal = terminals.size - 1 }
 
     fun closeTerminal(tab: TermTab) {
         tab.terminal.terminate()
         terminals.remove(tab)
         activeTerminal = activeTerminal.coerceAtMost(terminals.size - 1).coerceAtLeast(0)
         val session = tab.tmuxSession ?: return
-        if (!tab.endedCleanly && !connectionLost) launchIo(null) { remote.exec(tmuxKillCommand(session), 15) }
+        if (tab.endedCleanly) return
+        if (connectionLost) orphanSessions += session
+        else launchIo(null) { remote.exec(tmuxKillCommand(session), 15) }
     }
 
     private fun withTerminal(action: (TermTab) -> Unit) {
