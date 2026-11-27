@@ -7,6 +7,7 @@
   <a href="https://github.com/aidsuu/CodeTab/releases/latest"><img src="https://img.shields.io/github/v/release/aidsuu/CodeTab" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&amp;logoColor=white" alt="Android 8.0+">
+  <a href="https://trakteer.id/code_blank/tip"><img src="https://img.shields.io/badge/support-Trakteer-be1e2d" alt="Support on Trakteer"></a>
 </p>
 
 <p align="center">
@@ -181,6 +182,12 @@ The end-to-end script starts an unprivileged `sshd` on a random local port with 
 - `git push` and `git pull` rely on credentials already configured on the server, because remote commands run without an interactive prompt.
 - Language servers run on the remote machine and must be installed there. Rename, formatting, and code actions are not supported yet.
 - The editor opens files up to 4 MB. Larger files and binary files can be inspected in the terminal.
+
+## Support the project
+
+CodeTab is free and open source, and it is built and maintained by one developer. If it saves you time, you can support its development with a tip on [Trakteer](https://trakteer.id/code_blank/tip).
+
+The next goal is an iOS version for iPhone and iPad. Building it means rewriting the interface in SwiftUI on top of the existing Rust core and paying for an Apple Developer Program membership to publish on the App Store. Every tip helps make that happen.
 
 ## Contributing
 
